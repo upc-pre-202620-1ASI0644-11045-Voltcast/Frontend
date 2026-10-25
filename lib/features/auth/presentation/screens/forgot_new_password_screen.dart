@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/network/backend_messages.dart';
 import '../../../../core/validators.dart';
 import '../../../../core/widgets/app_buttons.dart';
 import '../../../../core/widgets/app_text_field.dart';
@@ -45,7 +46,15 @@ class _ForgotNewPasswordScreenState extends State<ForgotNewPasswordScreen> with 
         newPassword: _password.text,
       ),
     );
-    if (ok && mounted) context.go('/forgot/success');
+    if (!mounted) return;
+    if (ok) {
+      context.go('/forgot/success');
+    } else if (error == invalidCodeMessage) {
+      // The backend checks the code together with the new password, so this is
+      // where a wrong or expired code shows up. Send the user back to the code
+      // step with the message (US022 E02).
+      context.pop(invalidCodeMessage);
+    }
   }
 
   @override

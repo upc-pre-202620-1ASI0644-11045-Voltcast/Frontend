@@ -7,14 +7,15 @@ class Validators {
 
   static String? email(String? value) {
     final v = value?.trim() ?? '';
-    if (v.isEmpty) return 'Ingresa tu correo electrónico.';
-    if (!_email.hasMatch(v)) return 'Ingresa un correo válido.';
+    if (v.isEmpty) return 'Campo obligatorio: ingresa tu correo electrónico.';
+    if (!_email.hasMatch(v)) return 'Valor no válido: ingresa un correo válido.';
     return null;
   }
 
   static String? fullName(String? value) {
     final v = value?.trim() ?? '';
-    if (v.length < 2) return 'Ingresa tu nombre completo.';
+    if (v.isEmpty) return 'Campo obligatorio: ingresa tu nombre completo.';
+    if (v.length < 2) return 'Valor no válido: ingresa tu nombre completo.';
     if (v.length > 200) return 'El nombre es demasiado largo.';
     return null;
   }
@@ -22,17 +23,17 @@ class Validators {
   /// Same rule as `Cell.normalize_name`: a letter followed by a number.
   static String? cellName(String? value) {
     final v = value?.trim() ?? '';
-    if (v.isEmpty) return 'Ingresa el nombre de la celda.';
+    if (v.isEmpty) return 'Campo obligatorio: ingresa el nombre de la celda.';
     if (!RegExp(r'^[A-Za-z][1-9][0-9]*$').hasMatch(v)) {
-      return 'Usa una letra seguida de un número, por ejemplo A1 o B12.';
+      return 'Valor no válido: usa una letra seguida de un número, por ejemplo A1 o B12.';
     }
     return null;
   }
 
   static String? serialCode(String? value) {
     final v = value?.trim() ?? '';
-    if (v.isEmpty) return 'Ingresa el código de serie.';
-    if (v.length > 50) return 'Máximo 50 caracteres.';
+    if (v.isEmpty) return 'Campo obligatorio: ingresa el código de serie.';
+    if (v.length > 50) return 'Valor no válido: máximo 50 caracteres.';
     return null;
   }
 
@@ -43,7 +44,7 @@ class Validators {
   /// Same policy as `User.validate_password_policy` in the backend.
   static String? newPassword(String? value) {
     final v = value ?? '';
-    if (v.isEmpty) return 'Crea una contraseña.';
+    if (v.isEmpty) return 'Campo obligatorio: crea una contraseña.';
     if (v.length > 128) return 'Máximo 128 caracteres.';
     if (passwordStrength(v) < 4) {
       return 'Usa 8+ caracteres, mayúscula, minúscula, número y símbolo.';
@@ -53,7 +54,7 @@ class Validators {
 
   static String? Function(String?) confirmPassword(String Function() original) {
     return (value) {
-      if (value == null || value.isEmpty) return 'Repite tu contraseña.';
+      if (value == null || value.isEmpty) return 'Campo obligatorio: repite tu contraseña.';
       if (value != original()) return 'Las contraseñas no coinciden.';
       return null;
     };

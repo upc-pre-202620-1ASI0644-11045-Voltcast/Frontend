@@ -75,7 +75,7 @@ class _LoginScreenState extends State<LoginScreen> with SubmitState {
                 obscure: true,
                 textInputAction: TextInputAction.done,
                 autofillHints: const [AutofillHints.password],
-                validator: (v) => Validators.required(v, 'Ingresa tu contraseña.'),
+                validator: (v) => Validators.required(v, 'Campo obligatorio: ingresa tu contraseña.'),
                 onSubmitted: (_) => _login(),
                 enabled: !loading,
                 trailingLabel: LinkText(
@@ -92,14 +92,7 @@ class _LoginScreenState extends State<LoginScreen> with SubmitState {
           ErrorBanner(error!),
           const SizedBox(height: 16),
         ],
-        ListenableBuilder(
-          listenable: Listenable.merge([_email, _password]),
-          builder: (context, _) => PrimaryButton(
-            label: 'Iniciar sesión',
-            loading: loading,
-            onPressed: _email.text.trim().isEmpty || _password.text.isEmpty ? null : _login,
-          ),
-        ),
+        PrimaryButton(label: 'Iniciar sesión', loading: loading, onPressed: _login),
       ],
     );
   }

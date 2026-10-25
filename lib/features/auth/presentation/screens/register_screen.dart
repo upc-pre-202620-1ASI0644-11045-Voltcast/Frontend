@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../../core/theme/app_theme.dart';
 import '../../../../core/validators.dart';
 import '../../../../core/widgets/app_buttons.dart';
 import '../../../../core/widgets/app_text_field.dart';
@@ -24,7 +23,6 @@ class _RegisterScreenState extends State<RegisterScreen> with SubmitState {
   final _email = TextEditingController();
   final _password = TextEditingController();
   final _confirm = TextEditingController();
-  bool _accepted = false;
   bool _sent = false;
 
   @override
@@ -35,13 +33,6 @@ class _RegisterScreenState extends State<RegisterScreen> with SubmitState {
     _confirm.dispose();
     super.dispose();
   }
-
-  bool get _canSubmit =>
-      _accepted &&
-      _name.text.trim().isNotEmpty &&
-      _email.text.trim().isNotEmpty &&
-      _password.text.isNotEmpty &&
-      _confirm.text.isNotEmpty;
 
   Future<void> _register() async {
     if (!_formKey.currentState!.validate()) return;
@@ -117,81 +108,21 @@ class _RegisterScreenState extends State<RegisterScreen> with SubmitState {
                 obscure: true,
                 textInputAction: TextInputAction.done,
                 validator: Validators.confirmPassword(() => _password.text),
-                onSubmitted: (_) => _canSubmit ? _register() : null,
+                onSubmitted: (_) => _register(),
                 enabled: !loading,
               ),
             ],
           ),
-        ),
-        const SizedBox(height: 24),
-        _TermsCheckbox(
-          value: _accepted,
-          onChanged: loading ? null : (v) => setState(() => _accepted = v),
         ),
         const SizedBox(height: 28),
         if (error != null) ...[
           ErrorBanner(error!),
           const SizedBox(height: 16),
         ],
-        ListenableBuilder(
-          listenable: Listenable.merge([_name, _email, _password, _confirm]),
-          builder: (context, _) => PrimaryButton(
-            label: 'Solicitar cuenta',
-            loading: loading,
-            onPressed: _canSubmit ? _register : null,
-          ),
-        ),
+        // Always enabled: submitting an incomplete form is answered with a
+        // message under each missing field (US023 E02).
+        PrimaryButton(label: 'Solicitar cuenta', loading: loading, onPressed: _register),
       ],
-    );
-  }
-}
-
-class _TermsCheckbox extends StatelessWidget {
-  const _TermsCheckbox({required this.value, required this.onChanged});
-
-  final bool value;
-  final ValueChanged<bool>? onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    // The terms/privacy documents are not defined yet, so these are styled
-    // like the mock-up but have no destination.
-    const link = TextStyle(fontWeight: FontWeight.w600, color: AppColors.blue);
-    return InkWell(
-      onTap: onChanged == null ? null : () => onChanged!(!value),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 28,
-            height: 28,
-            child: Checkbox(
-              value: value,
-              onChanged: onChanged == null ? null : (v) => onChanged!(v ?? false),
-              shape: const RoundedRectangleBorder(),
-              side: const BorderSide(color: AppColors.border, width: 2),
-              activeColor: AppColors.blue,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text.rich(
-                const TextSpan(
-                  style: TextStyle(fontSize: 16, height: 1.5, color: AppColors.muted),
-                  children: [
-                    TextSpan(text: 'Acepto los '),
-                    TextSpan(text: 'Términos de servicio', style: link),
-                    TextSpan(text: ' y la '),
-                    TextSpan(text: 'Política de privacidad', style: link),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

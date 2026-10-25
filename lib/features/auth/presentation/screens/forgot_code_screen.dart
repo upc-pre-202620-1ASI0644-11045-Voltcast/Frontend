@@ -65,12 +65,17 @@ class _ForgotCodeScreenState extends State<ForgotCodeScreen> with SubmitState {
   }
 
   // There is no "verify only" endpoint: the code is checked by the backend
-  // together with the new password on the next screen.
-  void _continue() {
-    context.push(
+  // together with the new password on the next screen, which comes back here
+  // with a message when the code is wrong or expired.
+  Future<void> _continue() async {
+    final rejection = await context.push<String>(
       '/forgot/new-password',
       extra: ResetArgs(email: widget.email, code: _code.text),
     );
+    if (rejection != null && mounted) {
+      _code.clear();
+      setState(() => error = rejection);
+    }
   }
 
   @override
