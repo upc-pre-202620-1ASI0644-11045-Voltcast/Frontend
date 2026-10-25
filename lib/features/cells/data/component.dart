@@ -40,6 +40,15 @@ class Component {
   @override
   int get hashCode => id.hashCode;
 
+  /// Same component installed in another cell (or released when null).
+  Component withCell(int? cellId) => Component(
+        id: id,
+        type: type,
+        serialCode: serialCode,
+        isActive: isActive,
+        cellId: cellId,
+      );
+
   factory Component.fromJson(Map<String, dynamic> json) => Component(
         id: json['id'] as int,
         type: ComponentType.fromApi(json['type'] as String),

@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/dialogs.dart';
+import '../../../core/network/api_exception.dart';
+import '../../../core/network/backend_messages.dart';
 import '../../../core/submit_state.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/validators.dart';
@@ -14,25 +16,55 @@ import '../../../core/widgets/auth_visuals.dart';
 import '../../../core/widgets/screen_header.dart';
 import '../data/cell.dart';
 import 'inventory_controller.dart';
+import 'sync_banner.dart';
 
 class CellsScreen extends StatelessWidget {
   const CellsScreen({super.key});
 
+  /// US011. A cell without components is disabled after a confirmation (E01).
+  /// One that still has components is refused with a message (E02) and the user
+  /// may choose to release them, which frees the cathode and anode and disables
+  /// the cell (E03).
   Future<void> _disable(BuildContext context, Cell cell) async {
     final inventory = context.read<InventoryController>();
-    final components = inventory.componentsOf(cell.id);
+    final done = 'Celda ${cell.name} deshabilitada.';
 
-    final ok = await confirmDialog(
+    if (inventory.componentsOf(cell.id).isEmpty) {
+      final ok = await confirmDialog(
+        context,
+        title: '¿Deshabilitar celda ${cell.name}?',
+        message: 'La celda quedará fuera de uso.',
+        action: 'Deshabilitar',
+      );
+      if (!ok || !context.mounted) return;
+
+      final messenger = ScaffoldMessenger.of(context);
+      try {
+        await inventory.disableCell(cell);
+        messenger.showSnackBar(SnackBar(content: Text(done)));
+        return;
+      } on ApiException catch (e) {
+        // Anything but "it has components" (e.g. offline) is just reported.
+        if (e.message != cellHasComponentsMessage) {
+          messenger.showSnackBar(SnackBar(content: Text(e.message)));
+          return;
+        }
+        // Components were assigned from another device: same as E02 below.
+      }
+    }
+    if (!context.mounted) return;
+
+    final serials = inventory.componentsOf(cell.id).map((c) => c.serialCode).join(' y ');
+    final release = await confirmDialog(
       context,
-      title: '¿Deshabilitar celda ${cell.name}?',
-      message: components.isEmpty
-          ? 'La celda quedará fuera de uso y se conservará su historial.'
-          : 'Se liberarán ${components.map((c) => c.serialCode).join(' y ')} para poder '
-              'reasignarlos. La celda quedará fuera de uso y se conservará su historial.',
-      action: 'Deshabilitar',
+      title: 'La celda tiene componentes asignados',
+      message: 'No se puede deshabilitar la celda ${cell.name} mientras tenga '
+          '${serials.isEmpty ? 'componentes' : serials} asignados. Puedes liberarlos para '
+          'dejarlos disponibles y deshabilitar la celda.',
+      action: 'Liberar y deshabilitar',
     );
-    if (ok && context.mounted) {
-      await runAction(context, () => inventory.disableCell(cell), 'Celda ${cell.name} deshabilitada.');
+    if (release && context.mounted) {
+      await runAction(context, () => inventory.disableCell(cell, release: true), done);
     }
   }
 
@@ -86,6 +118,7 @@ class CellsScreen extends StatelessWidget {
             ErrorBanner(inventory.loadError!),
             const SizedBox(height: 16),
           ],
+          const SyncStatusBanner(),
           StatRow(
             tiles: [
               StatTile(label: 'Registradas', value: cells.length),
@@ -338,10 +371,9 @@ class _CellSheetState extends State<_CellSheet> with SubmitState {
     super.dispose();
   }
 
-  bool get _canSave {
-    final value = _name.text.trim();
-    return value.isNotEmpty && (!_editing || value.toUpperCase() != widget.cell!.name);
-  }
+  /// Creating is always allowed so an empty form is answered with the
+  /// "required field" message; editing needs an actual change.
+  bool get _canSave => !_editing || _name.text.trim().toUpperCase() != widget.cell!.name;
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;

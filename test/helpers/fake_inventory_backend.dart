@@ -16,6 +16,15 @@ class FakeInventoryBackend {
   /// When set, every request fails with this status/detail.
   ({int status, String detail})? failWith;
 
+  /// While true every request fails like a lost connection (no HTTP answer).
+  bool offline = false;
+
+  /// Requests that actually reached the swap endpoint (to prove a swap is not re-sent).
+  int swapRequests = 0;
+
+  /// When set, the swap endpoint answers 400 with this message (the rest keeps working).
+  String? refuseSwaps;
+
   /// 1-based index of the first request that fails with a 500 (e.g. to make
   /// only the refresh after a mutation fail).
   int? failFromRequest;
@@ -58,6 +67,7 @@ class FakeInventoryBackend {
 
   Future<http.Response> _handle(http.Request request) async {
     requests.add(request);
+    if (offline) throw http.ClientException('connection lost');
     final fail = failWith;
     if (fail != null) return _json(fail.status, {'detail': fail.detail});
     if (failFromRequest != null && requests.length >= failFromRequest!) {
@@ -122,6 +132,8 @@ class FakeInventoryBackend {
     }
 
     if (request.method == 'POST' && path == '/components/swap') {
+      swapRequests++;
+      if (refuseSwaps != null) return _bad(refuseSwaps!);
       final a = component(body['component_a_id'] as int);
       final b = component(body['component_b_id'] as int);
       if (a['type'] != b['type']) {

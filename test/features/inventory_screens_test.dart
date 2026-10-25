@@ -1,6 +1,7 @@
 import 'package:actualvoltcast/core/network/api_client.dart';
 import 'package:actualvoltcast/core/theme/app_theme.dart';
 import 'package:actualvoltcast/features/cells/data/inventory_repository.dart';
+import 'package:actualvoltcast/features/cells/data/pending_swap.dart';
 import 'package:actualvoltcast/features/cells/presentation/barcode_export.dart';
 import 'package:actualvoltcast/features/cells/presentation/barcode_screen.dart';
 import 'package:actualvoltcast/features/cells/presentation/cells_screen.dart';
@@ -46,7 +47,11 @@ Future<_Harness> _pump(
     routes: [
       ShellRoute(
         builder: (context, state, child) => ChangeNotifierProvider(
-          create: (_) => InventoryController(repository)..load(),
+          create: (_) => InventoryController(
+            repository,
+            store: MemoryPendingSwapStore(),
+            retryEvery: const Duration(hours: 1),
+          )..load(),
           child: child,
         ),
         routes: [
@@ -159,7 +164,21 @@ void main() {
       await tester.pump();
       await _tapText(tester, 'Crear celda');
 
-      expect(find.text('Usa una letra seguida de un número, por ejemplo A1 o B12.'), findsOneWidget);
+      expect(find.text('Valor no válido: usa una letra seguida de un número, por ejemplo A1 o B12.'), findsOneWidget);
+      expect(h.backend.requests.length, before);
+    });
+
+    testWidgets('US009 E02: an empty form is rejected with the required-field message', (tester) async {
+      final h = await _pump(tester);
+      final before = h.backend.requests.length;
+
+      await _tapText(tester, 'Nueva');
+      // The button is enabled even when empty, so the user is told what is missing.
+      expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Crear celda')).onPressed, isNotNull);
+      await _tapText(tester, 'Crear celda');
+
+      expect(find.text('Campo obligatorio: ingresa el nombre de la celda.'), findsOneWidget);
+      expect(find.text('Nueva celda'), findsOneWidget); // the sheet stays open
       expect(h.backend.requests.length, before);
     });
 
@@ -190,18 +209,44 @@ void main() {
       expect(h.backend.cell(3)['name'], 'K9');
     });
 
-    testWidgets('disabling a cell lists the components it will release', (tester) async {
+    testWidgets('US011 E01: an empty cell is disabled after confirming', (tester) async {
+      final h = await _pump(tester);
+
+      await _tapTooltip(tester, 'Deshabilitar', 2); // B3, no components
+      expect(find.text('¿Deshabilitar celda B3?'), findsOneWidget);
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Deshabilitar')));
+      await tester.pumpAndSettle();
+
+      expect(h.backend.cell(3)['is_active'], isFalse);
+      expect(find.text('Celda B3 deshabilitada.'), findsOneWidget);
+    });
+
+    testWidgets('US011 E02: a cell with components is refused, with a message', (tester) async {
+      final h = await _pump(tester);
+
+      await _tapTooltip(tester, 'Deshabilitar', 0); // A1 has CAT-001 and ANO-001
+
+      // No plain "disable" confirmation: the user is told why it cannot be done.
+      expect(find.text('La celda tiene componentes asignados'), findsOneWidget);
+      expect(find.textContaining('CAT-001 y ANO-001'), findsOneWidget);
+      expect(find.text('¿Deshabilitar celda A1?'), findsNothing);
+
+      await tester.tap(find.text('Cancelar'));
+      await tester.pumpAndSettle();
+      expect(h.backend.cell(1)['is_active'], isTrue);
+      expect(h.backend.component(1)['cell_id'], 1); // nothing was released
+    });
+
+    testWidgets('US011 E03: choosing to release the components frees them and disables the cell', (tester) async {
       final h = await _pump(tester);
 
       await _tapTooltip(tester, 'Deshabilitar', 0); // A1
-      expect(find.text('¿Deshabilitar celda A1?'), findsOneWidget);
-      expect(find.textContaining('CAT-001 y ANO-001'), findsOneWidget);
-
-      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Deshabilitar')));
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Liberar y deshabilitar')));
       await tester.pumpAndSettle();
 
       expect(h.backend.cell(1)['is_active'], isFalse);
       expect(h.backend.component(1)['cell_id'], isNull);
+      expect(h.backend.component(2)['cell_id'], isNull);
       expect(find.text('Celda A1 deshabilitada.'), findsOneWidget);
       expect(find.text('Inactiva'), findsNWidgets(2));
     });
@@ -267,17 +312,12 @@ void main() {
       expect(find.text('3 componentes'), findsOneWidget); // CAT-001, CAT-014, CAT-099
     });
 
-    testWidgets('a component in use cannot be disabled; a free one can', (tester) async {
+    // Order of the active components: CAT-001, CAT-014, CAT-099, ANO-001, ANO-014.
+    // ANO-777 is inactive and has no actions.
+    testWidgets('US013 E01: a component that is not in use is disabled after confirming', (tester) async {
       final h = await _pump(tester, location: '/components');
 
-      OutlinedButton disable(int i) =>
-          tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, 'Deshabilitar').at(i));
-
-      // Order: CAT-001, CAT-014, CAT-099, ANO-001, ANO-014 (active), ANO-777 (inactive, no actions).
-      expect(disable(0).onPressed, isNull);
-      expect(disable(2).onPressed, isNotNull);
-
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Deshabilitar').at(2));
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Deshabilitar').at(2)); // CAT-099
       await tester.pumpAndSettle();
       expect(find.text('¿Deshabilitar cátodo?'), findsOneWidget);
       await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Deshabilitar')));
@@ -285,6 +325,25 @@ void main() {
 
       expect(h.backend.component(5)['is_active'], isFalse);
       expect(find.text('CAT-099 deshabilitado.'), findsOneWidget);
+    });
+
+    testWidgets('US013 E02: a component in use is refused, with a message', (tester) async {
+      final h = await _pump(tester, location: '/components');
+      final before = h.backend.requests.length;
+
+      // Enabled on purpose: the answer to the attempt is the "en uso" message.
+      expect(tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, 'Deshabilitar').first).onPressed, isNotNull);
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Deshabilitar').first); // CAT-001 in A1
+      await tester.pumpAndSettle();
+
+      expect(find.text('El componente está en uso'), findsOneWidget);
+      expect(find.textContaining('CAT-001 está asignado a la celda A1'), findsOneWidget);
+      expect(find.text('¿Deshabilitar cátodo?'), findsNothing);
+
+      await tester.tap(find.text('Entendido'));
+      await tester.pumpAndSettle();
+      expect(h.backend.component(1)['is_active'], isTrue);
+      expect(h.backend.requests.length, before);
     });
 
     testWidgets('registers a component assigned to a cell', (tester) async {
@@ -339,12 +398,56 @@ void main() {
       expect(find.text('Asignado a celda B3'), findsOneWidget);
     });
 
-    testWidgets('reassign cannot pick the current cell', (tester) async {
+    testWidgets('one cathode and one anode per cell: only cells with room are offered', (tester) async {
       await _pump(tester, location: '/components');
 
-      await _tapText(tester, 'Reasignar', index: 0); // CAT-001 in A1
-      await _pick(tester, label: 'Celda', option: 'Celda A1 (actual)');
+      await _tapText(tester, 'Reasignar', index: 0); // CAT-001, installed in A1
+      await tester.tap(find.byWidgetPredicate((w) => w is DropdownButtonFormField));
+      await tester.pumpAndSettle();
+
+      // A1 is its own cell and A2 already has a cathode; only B3 is free.
+      expect(find.text('Celda B3'), findsOneWidget);
+      expect(find.text('Celda A1'), findsNothing);
+      expect(find.text('Celda A2'), findsNothing);
+    });
+
+    testWidgets('when no cell has room the assign sheet says to use "Intercambiar"', (tester) async {
+      final backend = FakeInventoryBackend();
+      // Give B3 a cathode too: now every active cell has one.
+      backend.components.add({'id': 7, 'type': 'CATHODE', 'serial_code': 'CAT-777', 'is_active': true, 'cell_id': 3});
+      await _pump(tester, location: '/components', backend: backend);
+
+      await _tapText(tester, 'Asignar'); // CAT-099, the only free component
+      expect(find.textContaining('No hay celdas con espacio para un cátodo'), findsOneWidget);
+      expect(find.textContaining('Intercambiar'), findsWidgets);
       expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Asignar')).onPressed, isNull);
+    });
+
+    testWidgets('US012 E02: an empty serial code is rejected with the required-field message', (tester) async {
+      final h = await _pump(tester, location: '/components');
+      final before = h.backend.requests.length;
+
+      await _tapText(tester, 'Nuevo');
+      expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Registrar componente')).onPressed, isNotNull);
+      await _tapText(tester, 'Registrar componente');
+
+      expect(find.text('Campo obligatorio: ingresa el código de serie.'), findsOneWidget);
+      expect(find.text('Nuevo componente'), findsOneWidget);
+      expect(h.backend.requests.length, before);
+    });
+
+    testWidgets('the new-component sheet only offers cells with room for that type', (tester) async {
+      await _pump(tester, location: '/components');
+
+      await _tapText(tester, 'Nuevo');
+      await tester.ensureVisible(find.byWidgetPredicate((w) => w is DropdownButtonFormField));
+      await tester.tap(find.byWidgetPredicate((w) => w is DropdownButtonFormField));
+      await tester.pumpAndSettle();
+
+      // Default type is cathode: A1 and A2 already have one.
+      expect(find.text('Celda B3'), findsOneWidget);
+      expect(find.text('Celda A1'), findsNothing);
+      expect(find.text('Celda A2'), findsNothing);
     });
 
     testWidgets('swaps two cathodes between cells', (tester) async {
@@ -361,6 +464,38 @@ void main() {
       expect(h.backend.component(1)['cell_id'], 2);
       expect(h.backend.component(3)['cell_id'], 1);
       expect(find.text('CAT-001 y CAT-014 intercambiados.'), findsOneWidget);
+      expect(find.textContaining('pendiente'), findsNothing); // online: nothing to sync
+    });
+
+    testWidgets('US014 E02: without a connection the swap is done locally and queued', (tester) async {
+      final h = await _pump(tester, location: '/components');
+
+      h.backend.offline = true; // the connection drops after the screen was loaded
+      await _tapText(tester, 'Intercambiar');
+      await _pick(tester, label: 'Primer componente', option: 'Cátodo CAT-001 · celda A1');
+      await _pick(tester, label: 'Segundo componente', option: 'Cátodo CAT-014 · celda A2');
+      await tester.tap(find.widgetWithText(FilledButton, 'Intercambiar'));
+      await tester.pumpAndSettle();
+
+      // Message from the criterion, and the change is already visible.
+      expect(find.textContaining('Sin conexión'), findsOneWidget);
+      expect(find.textContaining('se sincronizará con el servidor cuando se recupere la conexión a internet'), findsOneWidget);
+      expect(find.textContaining('1 intercambio pendiente de sincronizar'), findsOneWidget);
+      expect(h.backend.component(1)['cell_id'], 1); // the server was not reached
+      expect(find.text('Asignado a celda A2'), findsWidgets);
+
+      // Connection is back: "Reintentar ahora" sends it.
+      h.backend.offline = false;
+      await _tapText(tester, 'Reintentar ahora');
+
+      expect(h.backend.component(1)['cell_id'], 2);
+      expect(h.backend.component(3)['cell_id'], 1);
+      expect(find.textContaining('pendiente de sincronizar'), findsNothing);
+      expect(find.text('Se sincronizaron 1 intercambio con el servidor.'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Cerrar')); // the notice can be dismissed
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Se sincronizaron'), findsNothing);
     });
   });
 
@@ -393,11 +528,38 @@ void main() {
       expect(find.text('Código generado para la celda A2.'), findsOneWidget);
     });
 
-    testWidgets('a cell without components cannot generate a code', (tester) async {
-      await _pump(tester, location: '/barcodes?cell=3');
+    testWidgets('US016 E02: a cell without components is refused, with a message', (tester) async {
+      final h = await _pump(tester, location: '/barcodes?cell=3');
+      final before = h.backend.requests.length;
 
-      expect(find.textContaining('Asigna un cátodo y un ánodo'), findsOneWidget);
-      expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Generar código')).onPressed, isNull);
+      // Enabled on purpose: the answer to the attempt is the message.
+      expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Generar código')).onPressed, isNotNull);
+      await _tapText(tester, 'Generar código');
+
+      expect(find.textContaining('La celda no tiene componentes asignados'), findsOneWidget);
+      expect(h.backend.cell(3)['barcode_value'], isNull);
+      expect(h.backend.requests.length, before);
+    });
+
+    testWidgets('US016 E02: a cell with only one of the two components is told what is missing', (tester) async {
+      final backend = FakeInventoryBackend();
+      backend.component(2)['cell_id'] = null; // ANO-001 leaves A1: it keeps only the cathode
+      backend.cell(1)['barcode_value'] = null;
+      await _pump(tester, location: '/barcodes?cell=1', backend: backend);
+
+      await _tapText(tester, 'Generar código');
+
+      expect(find.text('A la celda le falta un ánodo para generar su código.'), findsOneWidget);
+      expect(backend.cell(1)['barcode_value'], isNull);
+    });
+
+    testWidgets('US017 E02: downloading before generating says to generate it first', (tester) async {
+      final h = await _pump(tester, location: '/barcodes?cell=2');
+
+      await _tapText(tester, 'Descargar PNG');
+
+      expect(find.text('Primero debes generar el código de barras de esta celda.'), findsOneWidget);
+      expect(h.downloads, isEmpty);
     });
 
     testWidgets('switching cell with the dropdown', (tester) async {
