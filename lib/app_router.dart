@@ -5,9 +5,9 @@ import 'features/auth/presentation/auth_controller.dart';
 import 'features/cells/data/inventory_repository.dart';
 import 'features/cells/data/pending_swap.dart';
 import 'features/cells/presentation/barcode_screen.dart';
-import 'features/cells/presentation/cells_screen.dart';
-import 'features/cells/presentation/components_screen.dart';
 import 'features/cells/presentation/inventory_controller.dart';
+import 'features/cells/presentation/cell_screen.dart';
+import 'features/cells/presentation/storage_screen.dart';
 import 'features/auth/presentation/screens/forgot_code_screen.dart';
 import 'features/auth/presentation/screens/forgot_email_screen.dart';
 import 'features/auth/presentation/screens/forgot_new_password_screen.dart';
@@ -15,7 +15,7 @@ import 'features/auth/presentation/screens/forgot_success_screen.dart';
 import 'features/auth/presentation/screens/login_screen.dart';
 import 'features/auth/presentation/screens/register_screen.dart';
 import 'features/auth/presentation/screens/reset_args.dart';
-import 'features/home/home_gate.dart';
+import 'features/home/main_shell.dart';
 import 'features/users/presentation/users_screen.dart';
 import 'splash_screen.dart';
 
@@ -36,9 +36,9 @@ GoRouter buildRouter(AuthController auth) {
         case AuthStatus.unauthenticated:
           return _isPublic(location) ? null : '/login';
         case AuthStatus.authenticated:
-          if (location == '/splash' || _isPublic(location)) return '/home';
+          if (location == '/splash' || _isPublic(location)) return '/line';
           // Supervisor-only area (the backend also answers 403 to engineers).
-          if (location.startsWith('/users') && auth.user?.isAdmin != true) return '/home';
+          if (location.startsWith('/users') && auth.user?.isAdmin != true) return '/line';
           return null;
       }
     },
@@ -46,9 +46,7 @@ GoRouter buildRouter(AuthController auth) {
       GoRoute(path: '/splash', builder: (_, _) => const SplashScreen()),
       GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
       GoRoute(path: '/register', builder: (_, _) => const RegisterScreen()),
-      GoRoute(path: '/home', builder: (_, _) => const HomeGate()),
-      GoRoute(path: '/users', builder: (_, _) => const UsersScreen()),
-      // The three screens read the same cells + components, so one controller
+      // These screens read the same cells + components, so one controller
       // lives as long as the user stays inside this group.
       ShellRoute(
         builder: (context, state, child) => ChangeNotifierProvider(
@@ -59,8 +57,26 @@ GoRouter buildRouter(AuthController auth) {
           child: child,
         ),
         routes: [
-          GoRoute(path: '/cells', builder: (_, _) => const CellsScreen()),
-          GoRoute(path: '/components', builder: (_, _) => const ComponentsScreen()),
+          // The bottom bar; branch order matches MainTabs.
+          StatefulShellRoute.indexedStack(
+            builder: (_, _, shell) => MainShell(shell: shell),
+            branches: [
+              StatefulShellBranch(
+                routes: [
+                  GoRoute(
+                    path: '/line',
+                    builder: (_, _) => ProductionLineScreen(
+                      userName: auth.user?.fullName.split(' ').first,
+                      onLogout: auth.logout,
+                    ),
+                  ),
+                ],
+              ),
+              StatefulShellBranch(routes: [GoRoute(path: '/storage', builder: (_, _) => const StorageScreen())]),
+              StatefulShellBranch(routes: [GoRoute(path: '/users', builder: (_, _) => const UsersScreen())]),
+            ],
+          ),
+          // Opens over the bar.
           GoRoute(
             path: '/barcodes',
             builder: (_, state) => BarcodeScreen(

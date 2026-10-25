@@ -1,5 +1,5 @@
 /// Messages the screens react to (not just display).
-const cellHasComponentsMessage = 'La celda tiene componentes asignados. Libéralos antes de deshabilitarla.';
+const cellHasComponentsMessage = 'La celda tiene componentes asignados. Libéralos antes de eliminarla.';
 const invalidCodeMessage = 'El código es inválido o ya expiró. Solicita uno nuevo.';
 
 /// The backend answers in English; the app is in Spanish. Exact messages are
@@ -25,17 +25,17 @@ const _exact = {
   // Cells and components
   'Cell name must be a letter followed by a number, e.g. A1, B12':
       'El nombre debe ser una letra seguida de un número, por ejemplo A1 o B12.',
-  'Cell is already disabled': 'La celda ya está deshabilitada.',
-  'Cell has assigned cathodes/anodes; release them first or disable with release_components=true':
-      cellHasComponentsMessage,
+  'Cell has assigned cathodes/anodes; release them before removing it': cellHasComponentsMessage,
   'Cell must have an assigned cathode and anode to generate its barcode':
       'La celda necesita un cátodo y un ánodo asignados para generar su código.',
-  'Cannot generate a barcode for a disabled cell':
-      'No se puede generar el código de una celda deshabilitada.',
+  'Cannot generate a barcode for an inactive cell':
+      'La celda necesita un cátodo y un ánodo asignados para generar su código.',
   'Cannot assign a disabled component': 'No se puede asignar un componente deshabilitado.',
   'Component is in use: it is assigned to a cell':
       'El componente está en uso: está asignado a una celda y no se puede deshabilitar.',
   'Component is already disabled': 'El componente ya está deshabilitado.',
+  'Component is already active': 'El componente ya está activo.',
+  'Only a disabled component can be removed from view': 'Solo se puede eliminar un componente deshabilitado.',
   'Can only swap components of the same type (CATHODE with CATHODE, ANODE with ANODE)':
       'Solo se pueden intercambiar componentes del mismo tipo.',
   'Both components must be assigned to a cell to be swapped':
@@ -48,7 +48,6 @@ const _exact = {
 final _cellExists = RegExp(r"^Cell '.*' already exists$");
 final _serialExists = RegExp(r"^Component with serial code '.*' already exists$");
 final _notFound = RegExp(r'^(Cell|Component) not found: \d+$');
-final _cellDisabled = RegExp(r'^Cell is disabled: \d+$');
 
 final _alreadyRegistered = RegExp(r"^Email '.*' is already registered$");
 final _tooManyRequests = RegExp(r'^Too many requests\. Try again in (\d+) seconds\.$');
@@ -66,7 +65,6 @@ String translateBackendMessage(String message) {
   if (missing != null) {
     return missing.group(1) == 'Cell' ? 'La celda no existe.' : 'El componente no existe.';
   }
-  if (_cellDisabled.hasMatch(message)) return 'La celda está deshabilitada.';
   final wait = _tooManyRequests.firstMatch(message);
   if (wait != null) {
     final seconds = int.parse(wait.group(1)!);

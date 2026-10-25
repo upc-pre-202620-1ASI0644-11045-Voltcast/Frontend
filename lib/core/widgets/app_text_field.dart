@@ -23,6 +23,7 @@ class AppTextField extends StatefulWidget {
     this.maxLength,
     this.textAlign = TextAlign.start,
     this.style,
+    this.prefixText,
   });
 
   final String label;
@@ -40,6 +41,9 @@ class AppTextField extends StatefulWidget {
   final int? maxLength;
   final TextAlign textAlign;
   final TextStyle? style;
+
+  /// Fixed text before the value (e.g. "C-" in front of a serial number).
+  final String? prefixText;
 
   @override
   State<AppTextField> createState() => _AppTextFieldState();
@@ -92,6 +96,8 @@ class _AppTextFieldState extends State<AppTextField> {
           style: widget.style ?? const TextStyle(fontSize: 17, color: AppColors.ink),
           decoration: InputDecoration(
             hintText: widget.hint,
+            prefixText: widget.prefixText,
+            prefixStyle: widget.style ?? const TextStyle(fontSize: 17, color: AppColors.ink),
             hintStyle: const TextStyle(fontSize: 17, color: AppColors.hint),
             counterText: '',
             contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 22),

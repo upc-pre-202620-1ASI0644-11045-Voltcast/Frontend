@@ -4,9 +4,10 @@ import 'package:actualvoltcast/features/cells/data/inventory_repository.dart';
 import 'package:actualvoltcast/features/cells/data/pending_swap.dart';
 import 'package:actualvoltcast/features/cells/presentation/barcode_export.dart';
 import 'package:actualvoltcast/features/cells/presentation/barcode_screen.dart';
-import 'package:actualvoltcast/features/cells/presentation/cells_screen.dart';
-import 'package:actualvoltcast/features/cells/presentation/components_screen.dart';
+import 'package:actualvoltcast/features/cells/presentation/cell_sounds.dart';
 import 'package:actualvoltcast/features/cells/presentation/inventory_controller.dart';
+import 'package:actualvoltcast/features/cells/presentation/cell_screen.dart';
+import 'package:actualvoltcast/features/cells/presentation/storage_screen.dart';
 import 'package:barcode_widget/barcode_widget.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
@@ -28,10 +29,11 @@ class _Harness {
 
 Future<_Harness> _pump(
   WidgetTester tester, {
-  String location = '/cells',
+  String location = '/line',
   FakeInventoryBackend? backend,
   bool failDownload = false,
 }) async {
+  CellSounds.enabled = false; // no audio backend in widget tests
   // Tall phone-width screen so every tile is built and reachable.
   tester.view.physicalSize = const Size(420, 4000);
   tester.view.devicePixelRatio = 1;
@@ -40,7 +42,10 @@ Future<_Harness> _pump(
   backend ??= FakeInventoryBackend();
   final downloads = <String>[];
   final repository = InventoryRepository(
-    ApiClient(tokenStorage: MemoryTokens(access: 'token'), httpClient: backend.client),
+    ApiClient(
+      tokenStorage: MemoryTokens(access: 'token'),
+      httpClient: backend.client,
+    ),
   );
 
   final router = GoRouter(
@@ -48,16 +53,14 @@ Future<_Harness> _pump(
     routes: [
       ShellRoute(
         builder: (context, state, child) => ChangeNotifierProvider(
-          create: (_) => InventoryController(
-            repository,
-            store: MemoryPendingSwapStore(),
-            retryEvery: const Duration(hours: 1),
-          )..load(),
+          create: (_) =>
+              InventoryController(repository, store: MemoryPendingSwapStore(), retryEvery: const Duration(hours: 1))
+                ..load(),
           child: child,
         ),
         routes: [
-          GoRoute(path: '/cells', builder: (_, _) => const CellsScreen()),
-          GoRoute(path: '/components', builder: (_, _) => const ComponentsScreen()),
+          GoRoute(path: '/line', builder: (_, _) => const ProductionLineScreen()),
+          GoRoute(path: '/storage', builder: (_, _) => const StorageScreen()),
           GoRoute(
             path: '/barcodes',
             builder: (_, state) => BarcodeScreen(
@@ -95,15 +98,35 @@ Future<void> _tapTooltip(WidgetTester tester, String tooltip, int index) async {
   await tester.pumpAndSettle();
 }
 
-/// Long-press the component showing [from] and drop it on the one showing [to].
-Future<void> _dragText(WidgetTester tester, {required String from, required String to}) async {
-  final start = tester.getCenter(find.text(from));
-  final end = tester.getCenter(find.text(to));
-  final gesture = await tester.startGesture(start);
+/// Long-press the zone [from] and drop it on the zone [to].
+Future<void> _dragKey(WidgetTester tester, {required String from, required String to}) async {
+  final gesture = await tester.startGesture(tester.getCenter(find.byKey(ValueKey(from))));
   await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
-  await gesture.moveTo(end);
+  await gesture.moveTo(tester.getCenter(find.byKey(ValueKey(to))));
   await tester.pump();
   await gesture.up();
+  await tester.pumpAndSettle();
+}
+
+Future<void> _tapKey(WidgetTester tester, String key) async {
+  await tester.tap(find.byKey(ValueKey(key)));
+  await tester.pumpAndSettle();
+}
+
+/// Opens a closed (complete) cell through its lid and the confirmation.
+Future<void> _openCell(WidgetTester tester, int id) async {
+  await _tapKey(tester, 'line-lid-$id');
+  await tester.tap(find.text('Abrir'));
+  await tester.pumpAndSettle();
+}
+
+/// [text] as an option of an open dropdown (the line behind shows the same names).
+Finder _menuOption(String text) =>
+    find.descendant(of: find.byWidgetPredicate((w) => w is DropdownMenuItem), matching: find.text(text));
+
+/// Goes to the inventory, as its tab in the bottom bar does.
+Future<void> _openStorage(WidgetTester tester) async {
+  GoRouter.of(tester.element(find.byType(ProductionLineScreen))).go('/storage');
   await tester.pumpAndSettle();
 }
 
@@ -124,33 +147,32 @@ Future<void> _pick(WidgetTester tester, {required String label, required String 
 }
 
 void main() {
-  group('CellsScreen', () {
-    testWidgets('shows stats, tiles and barcode state', (tester) async {
+  // The production line replaced the cells and components screens: the same
+  // sheets and flows, opened from the line, its component view and its storage.
+  group('ProductionLineScreen: cells', () {
+    testWidgets('shows stats and every cell with its state', (tester) async {
       await _pump(tester);
 
-      expect(find.text('Gestión de celdas eléctricas'), findsOneWidget);
       expect(find.text('REGISTRADAS'), findsOneWidget);
-      for (final n in ['4', '2', '1']) {
-        expect(find.text(n), findsOneWidget, reason: 'stat $n');
-      }
+      expect(find.text('ACTIVAS'), findsOneWidget);
+      expect(find.text('4'), findsOneWidget); // registered
+      expect(find.text('2'), findsNWidgets(2)); // active and inactive
       for (final name in ['A1', 'A2', 'B3', 'C4']) {
         expect(find.text('Celda $name'), findsOneWidget);
       }
-      expect(find.text('CAT-001'), findsOneWidget);
-      expect(find.text('ANO-014'), findsOneWidget);
-      expect(find.text('Sin asignar'), findsNWidgets(2)); // B3 has neither
-      expect(find.text('Código generado'), findsOneWidget);
-      expect(find.text('Código pendiente'), findsNWidgets(3));
-      expect(find.text('Activa'), findsNWidgets(3));
-      expect(find.text('Inactiva'), findsOneWidget);
-      expect(find.text('4 registros'), findsOneWidget);
+      expect(find.text('Á: ANO-001 · C: CAT-001'), findsOneWidget);
+      expect(find.text('Á: — · C: —'), findsNWidgets(2)); // B3 has neither; C4 is disabled
+      expect(find.text('CELL-00001'), findsOneWidget);
+      expect(find.text('Generar código de barras'), findsNWidgets(3));
+      expect(find.text('Activa'), findsNWidgets(2));
+      expect(find.text('Inactiva'), findsNWidgets(2));
     });
 
-    testWidgets('disabled cells are listed last and have no actions', (tester) async {
+    testWidgets('cells are listed by name and inactive ones keep their actions', (tester) async {
       await _pump(tester);
 
-      expect(find.byTooltip('Editar'), findsNWidgets(3));
-      expect(find.byTooltip('Deshabilitar'), findsNWidgets(3));
+      expect(find.byTooltip('Editar celda'), findsNWidgets(4));
+      expect(find.byTooltip('Eliminar celda'), findsNWidgets(4));
       final positions = ['A1', 'A2', 'B3', 'C4'].map((n) => tester.getTopLeft(find.text('Celda $n')).dy).toList();
       expect(positions, [...positions]..sort());
     });
@@ -210,7 +232,7 @@ void main() {
     testWidgets('rename needs a change to enable saving', (tester) async {
       final h = await _pump(tester);
 
-      await _tapTooltip(tester, 'Editar', 2); // B3
+      await _tapTooltip(tester, 'Editar celda', 2); // B3
       expect(find.text('Editar celda'), findsOneWidget);
       expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Guardar cambios')).onPressed, isNull);
 
@@ -222,75 +244,84 @@ void main() {
       expect(h.backend.cell(3)['name'], 'K9');
     });
 
-    testWidgets('US011 E01: an empty cell is disabled after confirming', (tester) async {
+    testWidgets('US011 E01: an empty cell is removed from view after confirming', (tester) async {
       final h = await _pump(tester);
 
-      await _tapTooltip(tester, 'Deshabilitar', 2); // B3, no components
-      expect(find.text('¿Deshabilitar celda B3?'), findsOneWidget);
-      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Deshabilitar')));
+      await _tapTooltip(tester, 'Eliminar celda', 2); // B3, no components
+      expect(find.text('¿Eliminar la celda B3?'), findsOneWidget);
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Eliminar')));
       await tester.pumpAndSettle();
 
-      expect(h.backend.cell(3)['is_active'], isFalse);
-      expect(find.text('Celda B3 deshabilitada.'), findsOneWidget);
+      expect(h.backend.cell(3)['is_visible'], isFalse);
+      expect(find.text('Celda B3 eliminada.'), findsOneWidget);
+      expect(find.text('Celda B3'), findsNothing);
+    });
+
+    testWidgets('creating a removed cell again brings it back', (tester) async {
+      final h = await _pump(tester);
+      h.backend.cell(3)['is_visible'] = false;
+
+      await _tapText(tester, 'Nueva');
+      await tester.enterText(find.byType(TextFormField), 'b3');
+      await tester.pump();
+      await _tapText(tester, 'Crear celda');
+
+      expect(h.backend.cell(3)['is_visible'], isTrue);
+      expect(h.backend.cells.length, 4); // no new record
+      expect(find.text('Celda B3'), findsOneWidget);
     });
 
     testWidgets('US011 E02: a cell with components is refused, with a message', (tester) async {
       final h = await _pump(tester);
 
-      await _tapTooltip(tester, 'Deshabilitar', 0); // A1 has CAT-001 and ANO-001
+      await _tapTooltip(tester, 'Eliminar celda', 0); // A1 has CAT-001 and ANO-001
 
-      // No plain "disable" confirmation: the user is told why it cannot be done.
+      // No plain "remove" confirmation: the user is told why it cannot be done.
       expect(find.text('La celda tiene componentes asignados'), findsOneWidget);
       expect(find.textContaining('CAT-001 y ANO-001'), findsOneWidget);
-      expect(find.text('¿Deshabilitar celda A1?'), findsNothing);
+      expect(find.text('¿Eliminar la celda A1?'), findsNothing);
 
       await tester.tap(find.text('Cancelar'));
       await tester.pumpAndSettle();
-      expect(h.backend.cell(1)['is_active'], isTrue);
+      expect(h.backend.cell(1)['is_visible'], isTrue);
       expect(h.backend.component(1)['cell_id'], 1); // nothing was released
     });
 
-    testWidgets('US011 E03: choosing to release the components frees them and disables the cell', (tester) async {
+    testWidgets('US011 E03: releasing the components frees them and leaves the cell inactive', (tester) async {
       final h = await _pump(tester);
 
-      await _tapTooltip(tester, 'Deshabilitar', 0); // A1
-      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Liberar y deshabilitar')));
+      await _tapTooltip(tester, 'Eliminar celda', 0); // A1
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Liberar componentes')));
       await tester.pumpAndSettle();
 
-      expect(h.backend.cell(1)['is_active'], isFalse);
+      expect(h.backend.cellJson(1)['is_active'], isFalse);
+      expect(h.backend.cell(1)['is_visible'], isTrue); // still on the line
       expect(h.backend.component(1)['cell_id'], isNull);
       expect(h.backend.component(2)['cell_id'], isNull);
-      expect(find.text('Celda A1 deshabilitada.'), findsOneWidget);
-      expect(find.text('Inactiva'), findsNWidgets(2));
+      expect(find.text('Componentes de la celda A1 liberados. La celda quedó inactiva.'), findsOneWidget);
+      expect(find.text('Inactiva'), findsNWidgets(3));
     });
 
     testWidgets('cancelling the dialog changes nothing', (tester) async {
       final h = await _pump(tester);
 
-      await _tapTooltip(tester, 'Deshabilitar', 2); // B3, empty
-      expect(find.textContaining('La celda quedará fuera de uso'), findsOneWidget);
+      await _tapTooltip(tester, 'Eliminar celda', 2); // B3, empty
+      expect(find.textContaining('Dejará de mostrarse'), findsOneWidget);
       await tester.tap(find.text('Cancelar'));
       await tester.pumpAndSettle();
 
-      expect(h.backend.cell(3)['is_active'], isTrue);
+      expect(h.backend.cell(3)['is_visible'], isTrue);
     });
 
-    testWidgets('"Código" opens the barcode screen on that cell', (tester) async {
+    testWidgets('the code tag opens the barcode screen on that cell', (tester) async {
       await _pump(tester);
 
-      // Only the buttons say exactly "Código"; active cells are A1, A2, B3.
-      await _tapText(tester, 'Código', index: 1);
+      await tester.tap(find.byKey(const ValueKey('line-code-2'))); // A2
+      await tester.pumpAndSettle();
 
       expect(find.text('Código de barras'), findsOneWidget);
       expect(find.text('Celda A2'), findsOneWidget); // preselected in the dropdown
       expect(find.text('Pendiente'), findsOneWidget); // A2 has no code yet
-    });
-
-    testWidgets('navigation buttons', (tester) async {
-      await _pump(tester);
-
-      await _tapText(tester, 'Componentes');
-      expect(find.text('Cátodos y ánodos'), findsOneWidget);
     });
 
     testWidgets('load failure offers a retry that recovers', (tester) async {
@@ -307,30 +338,27 @@ void main() {
     });
   });
 
-  group('ComponentsScreen', () {
-    testWidgets('shows stats, states and filters by type', (tester) async {
-      await _pump(tester, location: '/components');
+  group('ProductionLineScreen: components', () {
+    testWidgets('the storage shows the stats and the components outside the cells', (tester) async {
+      await _pump(tester);
+      await _openStorage(tester);
 
-      expect(find.text('Cátodos y ánodos'), findsOneWidget);
-      expect(find.text('6'), findsOneWidget);
-      expect(find.text('Cátodo · CAT-001'), findsOneWidget);
-      expect(find.text('Asignado a celda A1'), findsNWidgets(2));
-      expect(find.text('Disponible para asignar'), findsOneWidget);
-      expect(find.text('Deshabilitado'), findsOneWidget);
-      expect(find.text('6 componentes'), findsOneWidget);
-
-      await _tapText(tester, 'Cátodos');
-      expect(find.text('Ánodo · ANO-001'), findsNothing);
+      expect(find.text('6'), findsOneWidget); // registered
       expect(find.text('Cátodo · CAT-099'), findsOneWidget);
-      expect(find.text('3 componentes'), findsOneWidget); // CAT-001, CAT-014, CAT-099
+      expect(find.text('LIBERADOS · 1'), findsOneWidget);
+      expect(find.text('Libre'), findsOneWidget);
+      expect(find.text('DESHABILITADOS · 1'), findsOneWidget);
+      expect(find.text('Ánodo · ANO-777'), findsOneWidget);
+      expect(find.text('Deshabilitado'), findsOneWidget);
+      expect(find.text('Cátodo · CAT-001'), findsNothing); // in use: lives in its cell
     });
 
-    // Order of the active components: CAT-001, CAT-014, CAT-099, ANO-001, ANO-014.
-    // ANO-777 is inactive and has no actions.
     testWidgets('US013 E01: a component that is not in use is disabled after confirming', (tester) async {
-      final h = await _pump(tester, location: '/components');
+      final h = await _pump(tester);
+      await _openStorage(tester);
 
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Deshabilitar').at(2)); // CAT-099
+      // CAT-099 is the only active one in the storage; ANO-777 has no actions.
+      await tester.tap(find.byTooltip('Deshabilitar componente'));
       await tester.pumpAndSettle();
       expect(find.text('¿Deshabilitar cátodo?'), findsOneWidget);
       await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Deshabilitar')));
@@ -341,12 +369,14 @@ void main() {
     });
 
     testWidgets('US013 E02: a component in use is refused, with a message', (tester) async {
-      final h = await _pump(tester, location: '/components');
+      final h = await _pump(tester);
+      await _openCell(tester, 1);
+      await _tapKey(tester, 'line-cathode-1');
       final before = h.backend.requests.length;
 
       // Enabled on purpose: the answer to the attempt is the "en uso" message.
-      expect(tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, 'Deshabilitar').first).onPressed, isNotNull);
-      await tester.tap(find.widgetWithText(OutlinedButton, 'Deshabilitar').first); // CAT-001 in A1
+      expect(tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, 'Deshabilitar')).onPressed, isNotNull);
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Deshabilitar'));
       await tester.pumpAndSettle();
 
       expect(find.text('El componente está en uso'), findsOneWidget);
@@ -360,97 +390,138 @@ void main() {
     });
 
     testWidgets('registers a component assigned to a cell', (tester) async {
-      final h = await _pump(tester, location: '/components');
+      final h = await _pump(tester);
+      await _openStorage(tester);
 
       await _tapText(tester, 'Nuevo');
       await _tapText(tester, 'Ánodo', index: 0);
-      await tester.enterText(find.byType(TextFormField), 'ANO-500');
+      await tester.enterText(find.byType(TextFormField), '500');
       await tester.pump();
       await _pick(tester, label: 'Asignar a celda (opcional)', option: 'Celda B3');
       await _tapText(tester, 'Registrar componente');
 
-      expect(find.text('Ánodo ANO-500 registrado.'), findsOneWidget);
+      expect(find.text('Ánodo A-500 registrado.'), findsOneWidget);
       final created = h.backend.components.last;
-      expect([created['type'], created['serial_code'], created['cell_id']], ['ANODE', 'ANO-500', 3]);
+      expect([created['type'], created['serial_code'], created['cell_id']], ['ANODE', 'A-500', 3]);
     });
 
-    testWidgets('a duplicate serial is reported inside the sheet', (tester) async {
-      await _pump(tester, location: '/components');
+    testWidgets('an empty slot registers a new component of its type straight into its cell', (tester) async {
+      final h = await _pump(tester);
+      await _tapKey(tester, 'line-anode-3'); // B3 has no anode
 
-      await _tapText(tester, 'Nuevo');
-      await tester.enterText(find.byType(TextFormField), 'CAT-001');
+      await tester.tap(find.text('Asignar componente')); // the slot's only action
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Registrar nuevo'));
+      await tester.pumpAndSettle();
+      expect(find.text('Nuevo componente'), findsOneWidget);
+      // Locked to the slot's type: the cathode option is not offered.
+      expect(find.descendant(of: find.byType(BottomSheet), matching: find.text('Cátodo')), findsNothing);
+      await tester.enterText(find.byType(TextFormField), '501');
       await tester.pump();
       await _tapText(tester, 'Registrar componente');
 
-      expect(find.text('Nuevo componente'), findsOneWidget);
+      final created = h.backend.components.last;
+      expect([created['type'], created['serial_code'], created['cell_id']], ['ANODE', 'A-501', 3]);
+    });
+
+    testWidgets('a duplicate serial is reported inside the sheet', (tester) async {
+      final backend = FakeInventoryBackend();
+      backend.component(5)['serial_code'] = 'C-099';
+      await _pump(tester, backend: backend);
+      await _openStorage(tester);
+
+      await _tapText(tester, 'Nuevo');
+      await tester.enterText(find.byType(TextFormField), '099');
+      await tester.pump();
+      await _tapText(tester, 'Registrar componente');
+
+      expect(find.text('Nuevo componente'), findsWidgets); // the sheet stays open
       expect(find.text('Ya existe un componente con ese código de serie.'), findsOneWidget);
     });
 
     testWidgets('edits the serial code', (tester) async {
-      final h = await _pump(tester, location: '/components');
+      final h = await _pump(tester);
+      await _openStorage(tester);
 
-      await _tapText(tester, 'Editar', index: 2); // CAT-099
+      await _tapTooltip(tester, 'Editar componente', 0); // CAT-099
       expect(find.text('Editar componente'), findsOneWidget);
-      await tester.enterText(find.byType(TextFormField), 'CAT-100');
+      expect(find.text('099'), findsOneWidget); // only the digits of CAT-099
+      await tester.enterText(find.byType(TextFormField), '100');
       await tester.pump();
       await _tapText(tester, 'Guardar cambios');
 
-      expect(find.text('Cátodo · CAT-100'), findsOneWidget);
-      expect(h.backend.component(5)['serial_code'], 'CAT-100');
+      expect(find.text('Cátodo · C-100'), findsOneWidget);
+      expect(h.backend.component(5)['serial_code'], 'C-100');
     });
 
     testWidgets('assigns a free component to a cell', (tester) async {
-      final h = await _pump(tester, location: '/components');
+      final h = await _pump(tester);
+      await _openStorage(tester);
 
-      await _tapText(tester, 'Asignar'); // only the free one says "Asignar"
+      await _tapTooltip(tester, 'Asignar a una celda', 0); // CAT-099
       await _pick(tester, label: 'Celda', option: 'Celda B3');
       await tester.tap(find.widgetWithText(FilledButton, 'Asignar'));
       await tester.pumpAndSettle();
 
       expect(h.backend.component(5)['cell_id'], 3);
-      expect(find.text('Asignado a celda B3'), findsOneWidget);
+      expect(find.text('CAT-099 asignado a la celda B3.'), findsOneWidget);
     });
 
     testWidgets('one cathode and one anode per cell: only cells with room are offered', (tester) async {
-      await _pump(tester, location: '/components');
+      await _pump(tester);
+      await _openStorage(tester);
 
-      await _tapText(tester, 'Reasignar', index: 0); // CAT-001, installed in A1
+      await _tapTooltip(tester, 'Asignar a una celda', 0); // CAT-099, free
       await tester.tap(find.byWidgetPredicate((w) => w is DropdownButtonFormField));
       await tester.pumpAndSettle();
 
-      // A1 is its own cell and A2 already has a cathode; only B3 is free.
-      expect(find.text('Celda B3'), findsOneWidget);
-      expect(find.text('Celda A1'), findsNothing);
-      expect(find.text('Celda A2'), findsNothing);
+      // A1 and A2 already have a cathode; only B3 has room.
+      expect(_menuOption('Celda B3'), findsWidgets);
+      expect(_menuOption('Celda A1'), findsNothing);
+      expect(_menuOption('Celda A2'), findsNothing);
     });
 
     testWidgets('when no cell has room the assign sheet says to use "Intercambiar"', (tester) async {
       final backend = FakeInventoryBackend();
-      // Give B3 a cathode too: now every active cell has one.
-      backend.components.add({'id': 7, 'type': 'CATHODE', 'serial_code': 'CAT-777', 'is_active': true, 'cell_id': 3});
-      await _pump(tester, location: '/components', backend: backend);
+      // Give B3 and C4 a cathode too: now every cell has one.
+      for (final (id, cell) in [(7, 3), (8, 4)]) {
+        backend.components.add({
+          'id': id,
+          'type': 'CATHODE',
+          'serial_code': 'CAT-$id',
+          'is_active': true,
+          'is_visible': true,
+          'cell_id': cell,
+        });
+      }
+      await _pump(tester, backend: backend);
+      await _openStorage(tester);
 
-      await _tapText(tester, 'Asignar'); // CAT-099, the only free component
+      await _tapTooltip(tester, 'Asignar a una celda', 0); // CAT-099, the only free component
       expect(find.textContaining('No hay celdas con espacio para un cátodo'), findsOneWidget);
       expect(find.textContaining('Intercambiar'), findsWidgets);
       expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Asignar')).onPressed, isNull);
     });
 
     testWidgets('US012 E02: an empty serial code is rejected with the required-field message', (tester) async {
-      final h = await _pump(tester, location: '/components');
+      final h = await _pump(tester);
+      await _openStorage(tester);
       final before = h.backend.requests.length;
 
       await _tapText(tester, 'Nuevo');
-      expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Registrar componente')).onPressed, isNotNull);
+      expect(
+        tester.widget<FilledButton>(find.widgetWithText(FilledButton, 'Registrar componente')).onPressed,
+        isNotNull,
+      );
       await _tapText(tester, 'Registrar componente');
 
       expect(find.text('Campo obligatorio: ingresa el código de serie.'), findsOneWidget);
-      expect(find.text('Nuevo componente'), findsOneWidget);
       expect(h.backend.requests.length, before);
     });
 
     testWidgets('the new-component sheet only offers cells with room for that type', (tester) async {
-      await _pump(tester, location: '/components');
+      await _pump(tester);
+      await _openStorage(tester);
 
       await _tapText(tester, 'Nuevo');
       await tester.ensureVisible(find.byWidgetPredicate((w) => w is DropdownButtonFormField));
@@ -458,56 +529,78 @@ void main() {
       await tester.pumpAndSettle();
 
       // Default type is cathode: A1 and A2 already have one.
-      expect(find.text('Celda B3'), findsOneWidget);
-      expect(find.text('Celda A1'), findsNothing);
-      expect(find.text('Celda A2'), findsNothing);
+      expect(_menuOption('Celda B3'), findsWidgets);
+      expect(_menuOption('Celda A1'), findsNothing);
+      expect(_menuOption('Celda A2'), findsNothing);
     });
 
-    testWidgets('swaps two cathodes between cells by dragging', (tester) async {
+    testWidgets('the serial code takes only digits and gets the type letter in front', (tester) async {
       final h = await _pump(tester);
+      await _openStorage(tester);
 
-      // Only the confirmation dialog stands between the drop and the swap.
-      await _dragText(tester, from: 'CAT-001', to: 'CAT-014');
-      expect(find.text('¿Intercambiar componentes?'), findsOneWidget);
-      await _tapText(tester, 'Intercambiar');
+      await _tapText(tester, 'Nuevo'); // cathode by default
+      expect(find.text('C-'), findsOneWidget);
+      await tester.enterText(find.byType(TextFormField), 'C-12x3');
+      await tester.pump();
+      expect(find.text('123'), findsOneWidget); // letters and dashes are dropped
+      await _tapText(tester, 'Registrar componente');
 
-      expect(h.backend.component(1)['cell_id'], 2);
-      expect(h.backend.component(3)['cell_id'], 1);
-      expect(find.text('CAT-001 y CAT-014 intercambiados.'), findsOneWidget);
-      expect(find.textContaining('pendiente de sincronizar'), findsNothing); // online: nothing to sync
+      expect(h.backend.components.last['serial_code'], 'C-123');
     });
 
-    testWidgets('cancelling the confirmation leaves the components where they are', (tester) async {
+    testWidgets('a disabled component is reactivated: it is free again', (tester) async {
       final h = await _pump(tester);
+      await _openStorage(tester);
 
-      await _dragText(tester, from: 'CAT-001', to: 'CAT-014');
+      await _tapText(tester, 'Reactivar'); // ANO-777
+      expect(h.backend.component(6)['is_active'], isTrue);
+      expect(find.text('ANO-777 reactivado.'), findsOneWidget);
+      expect(find.text('Reactivar'), findsNothing); // now listed with the free ones
+    });
+
+    testWidgets('a disabled component is removed from view after confirming', (tester) async {
+      final h = await _pump(tester);
+      await _openStorage(tester);
+
+      await _tapTooltip(tester, 'Eliminar componente', 0); // ANO-777
+      expect(find.text('¿Eliminar ANO-777?'), findsOneWidget);
+      await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Eliminar')));
+      await tester.pumpAndSettle();
+
+      expect(h.backend.component(6)['is_visible'], isFalse);
+      expect(find.byKey(const ValueKey('storage-6')), findsNothing);
+    });
+
+    testWidgets('cancelling the swap confirmation leaves the components where they are', (tester) async {
+      final h = await _pump(tester);
+      await _openCell(tester, 1);
+      await _openCell(tester, 2);
+
+      await _dragKey(tester, from: 'line-cathode-1', to: 'line-cathode-2');
       await _tapText(tester, 'Cancelar');
 
       expect(h.backend.component(1)['cell_id'], 1);
       expect(h.backend.swapRequests, 0);
     });
 
-    testWidgets('a component cannot be dropped on one of another type', (tester) async {
-      final h = await _pump(tester);
-
-      await _dragText(tester, from: 'CAT-001', to: 'ANO-014');
-
-      expect(find.text('¿Intercambiar componentes?'), findsNothing);
-      expect(h.backend.swapRequests, 0);
-    });
-
     testWidgets('US014 E02: without a connection the swap is done locally and queued', (tester) async {
       final h = await _pump(tester);
+      await _openCell(tester, 1);
+      await _openCell(tester, 2);
 
       h.backend.offline = true; // the connection drops after the screen was loaded
-      await _dragText(tester, from: 'CAT-001', to: 'CAT-014');
+      await _dragKey(tester, from: 'line-cathode-1', to: 'line-cathode-2');
       await _tapText(tester, 'Intercambiar');
 
       // Message from the criterion, and the change is already visible.
       expect(find.textContaining('Sin conexión'), findsOneWidget);
-      expect(find.textContaining('se sincronizará con el servidor cuando se recupere la conexión a internet'), findsOneWidget);
+      expect(
+        find.textContaining('se sincronizará con el servidor cuando se recupere la conexión a internet'),
+        findsOneWidget,
+      );
       expect(find.textContaining('1 intercambio pendiente de sincronizar'), findsOneWidget);
       expect(h.backend.component(1)['cell_id'], 1); // the server was not reached
+      expect(find.text('Á: ANO-014 · C: CAT-001'), findsOneWidget); // A2 shows the moved cathode
 
       // Connection is back: "Reintentar ahora" sends it.
       h.backend.offline = false;
@@ -596,12 +689,15 @@ void main() {
       expect(find.text('Sin asignar'), findsNWidgets(2));
     });
 
-    testWidgets('defaults to the first active cell; disabled cells are not offered', (tester) async {
-      await _pump(tester, location: '/barcodes');
+    testWidgets('defaults to the first cell; inactive cells are offered, removed ones are not', (tester) async {
+      final backend = FakeInventoryBackend();
+      backend.cell(4)['is_visible'] = false;
+      await _pump(tester, location: '/barcodes', backend: backend);
       expect(find.text('Celda A1'), findsOneWidget);
 
       await tester.tap(find.byWidgetPredicate((w) => w is DropdownButtonFormField));
       await tester.pumpAndSettle();
+      expect(find.text('Celda B3'), findsWidgets); // inactive: shows what it is missing
       expect(find.text('Celda C4'), findsNothing);
     });
 
@@ -636,14 +732,14 @@ void main() {
       expect(bytes.length, greaterThan(1000));
     });
 
-    testWidgets('with no active cells it explains what to do', (tester) async {
+    testWidgets('with no cells it explains what to do', (tester) async {
       final backend = FakeInventoryBackend();
       for (final c in backend.cells) {
-        c['is_active'] = false;
+        c['is_visible'] = false;
       }
       await _pump(tester, location: '/barcodes', backend: backend);
 
-      expect(find.textContaining('No hay celdas activas'), findsOneWidget);
+      expect(find.textContaining('No hay celdas'), findsOneWidget);
     });
   });
 }

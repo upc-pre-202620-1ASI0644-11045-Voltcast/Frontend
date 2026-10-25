@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/dialogs.dart';
@@ -80,7 +79,8 @@ class _UsersView extends StatelessWidget {
       body: SafeArea(
         child: Column(
           children: [
-            AppHeader(onBack: () => context.canPop() ? context.pop() : context.go('/home')),
+            // A tab of the bottom bar: no way back to offer.
+            const AppHeader(),
             Expanded(child: _body(context, users)),
           ],
         ),

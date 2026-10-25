@@ -1,7 +1,5 @@
 import 'dart:async';
-
 import 'package:flutter/foundation.dart';
-
 import '../../../core/network/api_exception.dart';
 import '../data/cell.dart';
 import '../data/component.dart';
@@ -56,7 +54,10 @@ class InventoryController extends ChangeNotifier {
   String? get syncNotice => _syncNotice;
 
   List<Cell> get cells => ([..._cells]..sort(compareCells));
-  List<Cell> get activeCells => cells.where((c) => c.isActive).toList();
+
+  /// A cell is active while it has a cathode and an anode (the backend's rule,
+  /// computed here too so the line and the counts agree right after a change).
+  List<Cell> get activeCells => cells.where(hasCompletePair).toList();
   List<Component> get components => ([..._components]..sort(compareComponents));
 
   Cell? cellById(int? id) {
@@ -93,8 +94,9 @@ class InventoryController extends ChangeNotifier {
     return null;
   }
 
-  /// Active cells that still have room for a component of [type].
-  List<Cell> cellsAccepting(ComponentType type, {int? exceptComponentId}) => activeCells
+  /// Cells that still have room for a component of [type] (getting it is what
+  /// makes an inactive cell active).
+  List<Cell> cellsAccepting(ComponentType type, {int? exceptComponentId}) => cells
       .where((c) => occupantOf(c, type, exceptComponentId: exceptComponentId) == null)
       .toList();
 
@@ -110,8 +112,8 @@ class InventoryController extends ChangeNotifier {
 
   // ── Stats ────────────────────────────────────────────────────────────────
 
-  int get cellsWithComponents => _cells.where((c) => c.isActive && componentsOf(c.id).isNotEmpty).length;
-  int get inactiveCells => _cells.where((c) => !c.isActive).length;
+  int get activeCount => _cells.where(hasCompletePair).length;
+  int get inactiveCount => _cells.length - activeCount;
   int get componentsInUse => _components.where((c) => c.isInUse).length;
   int get componentsFree => _components.where((c) => c.isFree).length;
 
@@ -159,13 +161,15 @@ class InventoryController extends ChangeNotifier {
   Future<void> renameCell(Cell cell, String name) =>
       _mutate(['cell:${cell.id}'], () => _repository.updateCell(cell.id, name));
 
-  /// Without [release] the backend refuses a cell that still has components
-  /// (the caller then offers to release them). With it, the cell's cathode and
-  /// anode are freed first and the cell is disabled.
-  Future<void> disableCell(Cell cell, {bool release = false}) => _mutate(
+  /// Frees the cell's cathode and anode: the cell becomes inactive.
+  Future<void> releaseCell(Cell cell) => _mutate(
         ['cell:${cell.id}', for (final c in componentsOf(cell.id)) 'comp:${c.id}'],
-        () => _repository.disableCell(cell.id, releaseComponents: release),
+        () => _repository.releaseCell(cell.id),
       );
+
+  /// Removes a cell without components from view; creating one with the same
+  /// name brings it back.
+  Future<void> hideCell(Cell cell) => _mutate(['cell:${cell.id}'], () => _repository.hideCell(cell.id));
 
   Future<void> generateBarcode(Cell cell) =>
       _mutate(['cell:${cell.id}'], () => _repository.generateBarcode(cell.id));
@@ -195,6 +199,14 @@ class InventoryController extends ChangeNotifier {
 
   Future<void> disableComponent(Component component) =>
       _mutate(['comp:${component.id}'], () => _repository.disableComponent(component.id));
+
+  /// A disabled component becomes free again.
+  Future<void> reactivateComponent(Component component) =>
+      _mutate(['comp:${component.id}'], () => _repository.reactivateComponent(component.id));
+
+  /// Removes a disabled component from view; registering its code again brings it back.
+  Future<void> hideComponent(Component component) =>
+      _mutate(['comp:${component.id}'], () => _repository.hideComponent(component.id));
 
   Future<void> assignComponent(Component component, Cell cell) async {
     _ensureRoom(cell, component.type, exceptComponentId: component.id);

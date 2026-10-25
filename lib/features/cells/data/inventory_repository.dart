@@ -23,14 +23,13 @@ class InventoryRepository {
         await _api.put('/cells/$id', body: {'name': name.trim()}, auth: true) as Map<String, dynamic>,
       );
 
-  /// With [releaseComponents] the backend frees the cell's cathode/anode first;
-  /// without it, a cell that still has components is refused.
-  Future<Cell> disableCell(int id, {required bool releaseComponents}) async => Cell.fromJson(
-        await _api.patch(
-          '/cells/$id/disable?release_components=$releaseComponents',
-          auth: true,
-        ) as Map<String, dynamic>,
-      );
+  /// Frees the cell's cathode and anode; the cell becomes inactive.
+  Future<Cell> releaseCell(int id) async =>
+      Cell.fromJson(await _api.patch('/cells/$id/release', auth: true) as Map<String, dynamic>);
+
+  /// Removes a cell without components from view (it is kept in the database).
+  Future<Cell> hideCell(int id) async =>
+      Cell.fromJson(await _api.patch('/cells/$id/hide', auth: true) as Map<String, dynamic>);
 
   /// Idempotent: keeps the value if the cell already has one.
   Future<Cell> generateBarcode(int id) async => Cell.fromJson(
@@ -76,6 +75,12 @@ class InventoryRepository {
   Future<Component> disableComponent(int id) async => Component.fromJson(
         await _api.patch('/components/$id/disable', auth: true) as Map<String, dynamic>,
       );
+
+  Future<Component> reactivateComponent(int id) async =>
+      Component.fromJson(await _api.patch('/components/$id/reactivate', auth: true) as Map<String, dynamic>);
+
+  Future<Component> hideComponent(int id) async =>
+      Component.fromJson(await _api.patch('/components/$id/hide', auth: true) as Map<String, dynamic>);
 
   Future<Component> assignComponent(int id, int cellId) async => Component.fromJson(
         await _api.post('/components/$id/assign', body: {'cell_id': cellId}, auth: true)

@@ -2,19 +2,20 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
-/// Header of the module screens: back arrow, title + subtitle, optional action.
+/// Header of the module screens: back arrow (none on the root of a tab),
+/// title + subtitle, optional action.
 class ScreenHeader extends StatelessWidget {
   const ScreenHeader({
     super.key,
     required this.title,
     required this.subtitle,
-    required this.onBack,
+    this.onBack,
     this.action,
   });
 
   final String title;
   final String subtitle;
-  final VoidCallback onBack;
+  final VoidCallback? onBack;
   final Widget? action;
 
   @override
@@ -27,12 +28,15 @@ class ScreenHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(8, 14, 20, 14),
       child: Row(
         children: [
-          IconButton(
-            tooltip: 'Volver',
-            onPressed: onBack,
-            icon: const Icon(Icons.arrow_back, color: AppColors.muted),
-          ),
-          const SizedBox(width: 4),
+          if (onBack != null) ...[
+            IconButton(
+              tooltip: 'Volver',
+              onPressed: onBack,
+              icon: const Icon(Icons.arrow_back, color: AppColors.muted),
+            ),
+            const SizedBox(width: 4),
+          ] else
+            const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
