@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'features/auth/presentation/auth_controller.dart';
 import 'features/cells/data/inventory_repository.dart';
+import 'features/cells/data/pending_swap.dart';
 import 'features/cells/presentation/barcode_screen.dart';
 import 'features/cells/presentation/cells_screen.dart';
 import 'features/cells/presentation/components_screen.dart';
@@ -51,7 +52,10 @@ GoRouter buildRouter(AuthController auth) {
       // lives as long as the user stays inside this group.
       ShellRoute(
         builder: (context, state, child) => ChangeNotifierProvider(
-          create: (context) => InventoryController(context.read<InventoryRepository>())..load(),
+          create: (context) => InventoryController(
+            context.read<InventoryRepository>(),
+            store: PrefsPendingSwapStore(),
+          )..load(),
           child: child,
         ),
         routes: [

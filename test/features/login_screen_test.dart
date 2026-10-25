@@ -32,19 +32,21 @@ Future<AuthController> _pumpLogin(WidgetTester tester, MockClient client) async 
 }
 
 void main() {
-  testWidgets('login button stays disabled until both fields are filled', (tester) async {
-    await _pumpLogin(tester, MockClient((_) async => http.Response('{}', 200)));
+  testWidgets('submitting an empty form shows what is missing and does not call the API', (tester) async {
+    var calls = 0;
+    await _pumpLogin(tester, MockClient((_) async {
+      calls++;
+      return http.Response('{}', 200);
+    }));
 
-    FilledButton button() => tester.widget<FilledButton>(find.byType(FilledButton));
-    expect(button().onPressed, isNull);
+    // The button is always enabled: pressing it on an empty form explains why it cannot go on.
+    expect(tester.widget<FilledButton>(find.byType(FilledButton)).onPressed, isNotNull);
+    await tester.tap(find.text('Iniciar sesión'));
+    await tester.pumpAndSettle();
 
-    await tester.enterText(find.byType(TextFormField).first, 'jperez@empresa.com');
-    await tester.pump();
-    expect(button().onPressed, isNull);
-
-    await tester.enterText(find.byType(TextFormField).last, 'SecurePass123!');
-    await tester.pump();
-    expect(button().onPressed, isNotNull);
+    expect(find.text('Campo obligatorio: ingresa tu correo electrónico.'), findsOneWidget);
+    expect(find.text('Campo obligatorio: ingresa tu contraseña.'), findsOneWidget);
+    expect(calls, 0);
   });
 
   testWidgets('invalid credentials show the translated error banner', (tester) async {
@@ -79,7 +81,7 @@ void main() {
     await tester.tap(find.text('Iniciar sesión'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Ingresa un correo válido.'), findsOneWidget);
+    expect(find.text('Valor no válido: ingresa un correo válido.'), findsOneWidget);
     expect(calls, 0);
   });
 }

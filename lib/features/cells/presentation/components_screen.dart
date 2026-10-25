@@ -15,6 +15,7 @@ import '../data/cell.dart';
 import '../data/component.dart';
 import 'cells_screen.dart' show LoadErrorView;
 import 'inventory_controller.dart';
+import 'sync_banner.dart';
 
 class ComponentsScreen extends StatefulWidget {
   const ComponentsScreen({super.key});
@@ -29,6 +30,18 @@ class _ComponentsScreenState extends State<ComponentsScreen> {
 
   Future<void> _disable(Component component) async {
     final inventory = context.read<InventoryController>();
+
+    if (component.isInUse) {
+      final cell = inventory.cellById(component.cellId);
+      await showInfoDialog(
+        context,
+        title: 'El componente está en uso',
+        message: '${component.serialCode} está asignado a la celda ${cell?.name ?? '#${component.cellId}'}, '
+            'por lo que no se puede deshabilitar. Libera la celda o asígnalo a otra antes de hacerlo.',
+      );
+      return;
+    }
+
     final ok = await confirmDialog(
       context,
       title: '¿Deshabilitar ${component.type.label.toLowerCase()}?',
@@ -91,6 +104,7 @@ class _ComponentsScreenState extends State<ComponentsScreen> {
             ErrorBanner(inventory.loadError!),
             const SizedBox(height: 16),
           ],
+          const SyncStatusBanner(),
           StatRow(
             tiles: [
               StatTile(label: 'Registrados', value: all.length),
@@ -280,12 +294,12 @@ class _ComponentTile extends StatelessWidget {
                             color: AppColors.teal,
                             onPressed: onAssign,
                           ),
-                          // A component in use must be moved or its cell disabled
-                          // first: the backend refuses to disable it.
+                          // Always enabled: for a component in use the answer is the
+                          // "está en uso" message (US013 E02), not a dead button.
                           SmallActionButton(
                             label: 'Deshabilitar',
                             color: AppColors.error,
-                            onPressed: component.isInUse ? null : onDisable,
+                            onPressed: onDisable,
                           ),
                         ],
                       ),
@@ -375,11 +389,11 @@ class _ComponentSheetState extends State<_ComponentSheet> with SubmitState {
     super.dispose();
   }
 
+  /// Creating is always allowed so an empty form is answered with the
+  /// "required field" message; editing needs an actual change.
   bool get _canSave {
-    final serial = _serial.text.trim();
-    if (serial.isEmpty) return false;
     if (!_editing) return true;
-    return serial != widget.component!.serialCode || _type != widget.component!.type;
+    return _serial.text.trim() != widget.component!.serialCode || _type != widget.component!.type;
   }
 
   Future<void> _save() async {
@@ -403,7 +417,9 @@ class _ComponentSheetState extends State<_ComponentSheet> with SubmitState {
 
   @override
   Widget build(BuildContext context) {
-    final cells = widget.inventory.activeCells;
+    // One cathode and one anode per cell: only cells with room for this type.
+    final cells = widget.inventory.cellsAccepting(_type);
+    if (_cell != null && !cells.contains(_cell)) _cell = null;
 
     return SheetFrame(
       title: _editing ? 'Editar componente' : 'Nuevo componente',
@@ -431,6 +447,13 @@ class _ComponentSheetState extends State<_ComponentSheet> with SubmitState {
             items: {for (final c in cells) c: 'Celda ${c.name}'},
             onChanged: loading ? null : (c) => setState(() => _cell = c),
           ),
+          if (cells.isEmpty) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Todas las celdas activas ya tienen un ${_type.label.toLowerCase()} asignado.',
+              style: const TextStyle(fontSize: 13, color: AppColors.muted),
+            ),
+          ],
         ],
         const SizedBox(height: 20),
         if (error != null) ...[
@@ -482,22 +505,27 @@ class _AssignSheetState extends State<_AssignSheet> with SubmitState {
 
   @override
   Widget build(BuildContext context) {
-    final cells = widget.inventory.activeCells;
+    // The component's current cell is not an option, and neither is a cell
+    // that already has one of this type (use "Intercambiar" for those).
+    final cells = widget.inventory
+        .cellsAccepting(widget.component.type, exceptComponentId: widget.component.id)
+        .where((c) => c.id != widget.component.cellId)
+        .toList();
 
     return SheetFrame(
       title: 'Asignar ${widget.component.serialCode}',
       children: [
         if (cells.isEmpty)
-          const InfoBox(text: 'No hay celdas activas. Crea una celda primero.')
+          InfoBox(
+            text: 'No hay celdas con espacio para un ${widget.component.type.label.toLowerCase()}: '
+                'cada celda admite uno solo. Para moverlo entre celdas usa "Intercambiar".',
+          )
         else
           AppDropdown<Cell>(
             label: 'Celda',
             value: _selected,
             hint: 'Selecciona una celda',
-            items: {
-              for (final c in cells)
-                c: c.id == widget.component.cellId ? 'Celda ${c.name} (actual)' : 'Celda ${c.name}',
-            },
+            items: {for (final c in cells) c: 'Celda ${c.name}'},
             onChanged: loading ? null : (c) => setState(() => _selected = c),
           ),
         const SizedBox(height: 20),
@@ -509,7 +537,7 @@ class _AssignSheetState extends State<_AssignSheet> with SubmitState {
           color: AppColors.teal,
           label: 'Asignar',
           loading: loading,
-          onPressed: _selected == null || _selected!.id == widget.component.cellId ? null : _assign,
+          onPressed: _selected == null ? null : _assign,
         ),
         const SizedBox(height: 12),
         SecondaryButton(label: 'Cancelar', onPressed: loading ? null : () => Navigator.pop(context)),

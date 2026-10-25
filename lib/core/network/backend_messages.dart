@@ -1,3 +1,7 @@
+/// Messages the screens react to (not just display).
+const cellHasComponentsMessage = 'La celda tiene componentes asignados. Libéralos antes de deshabilitarla.';
+const invalidCodeMessage = 'El código es inválido o ya expiró. Solicita uno nuevo.';
+
 /// The backend answers in English; the app is in Spanish. Exact messages are
 /// looked up first, then prefix patterns for messages that embed values.
 const _exact = {
@@ -6,8 +10,7 @@ const _exact = {
       'Tu solicitud de cuenta aún está pendiente de aprobación.',
   'Your account request was rejected': 'Tu solicitud de cuenta fue rechazada.',
   'Your account is disabled': 'Tu cuenta está deshabilitada.',
-  'Invalid or expired verification code':
-      'El código es inválido o ya expiró. Solicita uno nuevo.',
+  'Invalid or expired verification code': invalidCodeMessage,
   'Invalid or expired refresh token': 'Tu sesión expiró. Inicia sesión de nuevo.',
   'User not found or account is not active': 'Tu cuenta ya no está disponible.',
   'Not authenticated': 'Tu sesión expiró. Inicia sesión de nuevo.',
@@ -24,14 +27,14 @@ const _exact = {
       'El nombre debe ser una letra seguida de un número, por ejemplo A1 o B12.',
   'Cell is already disabled': 'La celda ya está deshabilitada.',
   'Cell has assigned cathodes/anodes; release them first or disable with release_components=true':
-      'La celda tiene componentes asignados. Libéralos antes de deshabilitarla.',
+      cellHasComponentsMessage,
   'Cell must have an assigned cathode and anode to generate its barcode':
       'La celda necesita un cátodo y un ánodo asignados para generar su código.',
   'Cannot generate a barcode for a disabled cell':
       'No se puede generar el código de una celda deshabilitada.',
   'Cannot assign a disabled component': 'No se puede asignar un componente deshabilitado.',
   'Component is in use: it is assigned to a cell':
-      'El componente está asignado a una celda y no se puede deshabilitar.',
+      'El componente está en uso: está asignado a una celda y no se puede deshabilitar.',
   'Component is already disabled': 'El componente ya está deshabilitado.',
   'Can only swap components of the same type (CATHODE with CATHODE, ANODE with ANODE)':
       'Solo se pueden intercambiar componentes del mismo tipo.',

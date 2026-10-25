@@ -124,6 +124,60 @@ void main() {
     expect(find.text('¡Contraseña\nactualizada!'), findsOneWidget);
   });
 
+  testWidgets('US022 E02: a wrong or expired code sends the user back to the code step with a message', (tester) async {
+    tester.view.physicalSize = const Size(420, 3000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
+    final tokens = MemoryTokens();
+    final api = ApiClient(
+      tokenStorage: tokens,
+      httpClient: MockClient((request) async => http.Response(
+            '{"detail":"Invalid or expired verification code"}',
+            400,
+            headers: {'content-type': 'application/json'},
+          )),
+    );
+    final router = GoRouter(initialLocation: '/forgot/code', routes: [
+      GoRoute(path: '/forgot/code', builder: (_, _) => const ForgotCodeScreen(email: 'a@b.co')),
+      GoRoute(
+        path: '/forgot/new-password',
+        builder: (_, state) => ForgotNewPasswordScreen(args: state.extra! as ResetArgs),
+      ),
+    ]);
+    addTearDown(router.dispose);
+    await tester.pumpWidget(
+      Provider<AuthRepository>.value(
+        value: AuthRepository(api: api, tokens: tokens),
+        child: MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Step 1: type a code and continue.
+    await tester.enterText(find.byType(TextFormField), '000000');
+    await tester.pump();
+    await tester.tap(find.text('Verificar código'));
+    await tester.pumpAndSettle();
+    expect(find.text('Nueva contraseña'), findsOneWidget);
+
+    // Step 2: the new password is sent together with the code, and the backend rejects the code.
+    final fields = find.byType(TextFormField);
+    await tester.enterText(fields.first, 'SecurePass123!');
+    await tester.enterText(fields.last, 'SecurePass123!');
+    await tester.pump();
+    await tester.ensureVisible(find.text('Cambiar contraseña'));
+    await tester.tap(find.text('Cambiar contraseña'));
+    await tester.pumpAndSettle();
+
+    // Back on the code step, with the message and an empty field to retype.
+    expect(find.text('Revisa tu correo'), findsOneWidget);
+    expect(find.text('El código es inválido o ya expiró. Solicita uno nuevo.'), findsOneWidget);
+    expect(tester.widget<TextField>(find.byType(TextField)).controller!.text, isEmpty);
+
+    await tester.pump(const Duration(seconds: 31)); // let the resend cooldown finish
+  });
+
   testWidgets('success screen renders without overflow', (tester) async {
     await _pump(tester, const ForgotSuccessScreen());
     expect(find.text('¡Contraseña\nactualizada!'), findsOneWidget);

@@ -38,11 +38,34 @@ class _BarcodeScreenState extends State<BarcodeScreen> {
     _selectedId = widget.initialCellId;
   }
 
-  Future<void> _generate(InventoryController inventory, Cell cell) =>
-      runAction(context, () => inventory.generateBarcode(cell), 'Código generado para la celda ${cell.name}.');
+  /// US016: a cell without components is refused with a message (E02).
+  Future<void> _generate(InventoryController inventory, Cell cell) async {
+    final hasCathode = inventory.cathodeOf(cell) != null;
+    final hasAnode = inventory.anodeOf(cell) != null;
+    if (!hasCathode && !hasAnode) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('La celda no tiene componentes asignados. Asígnale un cátodo y un ánodo primero.')),
+      );
+      return;
+    }
+    if (!hasCathode || !hasAnode) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('A la celda le falta ${hasCathode ? 'un ánodo' : 'un cátodo'} para generar su código.')),
+      );
+      return;
+    }
+    await runAction(context, () => inventory.generateBarcode(cell), 'Código generado para la celda ${cell.name}.');
+  }
 
+  /// US017: downloading before generating tells the user to generate it first (E02).
   Future<void> _download(Cell cell) async {
     final messenger = ScaffoldMessenger.of(context);
+    if (!cell.hasBarcode) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Primero debes generar el código de barras de esta celda.')),
+      );
+      return;
+    }
     try {
       await widget.downloader(boundaryKey: _barcodeKey, fileName: 'codigo-celda-${cell.name}.png');
     } catch (_) {
@@ -182,13 +205,16 @@ class _BarcodeScreenState extends State<BarcodeScreen> {
               label: 'Descargar PNG',
               onPressed: busy ? null : () => _download(cell),
             )
-          else
+          else ...[
             PrimaryButton(
               color: AppColors.teal,
               label: 'Generar código',
               loading: busy,
-              onPressed: inventory.hasCompletePair(cell) ? () => _generate(inventory, cell) : null,
+              onPressed: () => _generate(inventory, cell),
             ),
+            const SizedBox(height: 12),
+            SecondaryButton(label: 'Descargar PNG', onPressed: busy ? null : () => _download(cell)),
+          ],
         ],
       ),
     );

@@ -32,6 +32,20 @@ Future<bool> confirmDialog(
   return result ?? false;
 }
 
+/// One-button dialog for an operation the system refuses ("el componente está en uso").
+Future<void> showInfoDialog(BuildContext context, {required String title, required String message}) {
+  return showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+      content: Text(message),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Entendido')),
+      ],
+    ),
+  );
+}
+
 /// Runs [action] and reports the outcome in a SnackBar: [done] on success,
 /// the error message on [ApiException].
 Future<void> runAction(BuildContext context, Future<void> Function() action, String done) async {

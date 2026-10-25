@@ -270,6 +270,69 @@ class AppDropdown<T> extends StatelessWidget {
   }
 }
 
+/// Highlighted notice with an optional action and close button (e.g. "2 cambios
+/// pendientes de sincronizar").
+class NoticeBanner extends StatelessWidget {
+  const NoticeBanner({
+    super.key,
+    required this.text,
+    this.icon = Icons.sync_problem_outlined,
+    this.background = const Color(0xFFFEF6E0),
+    this.foreground = const Color(0xFF92400E),
+    this.actionLabel,
+    this.onAction,
+    this.onClose,
+  });
+
+  final String text;
+  final IconData icon;
+  final Color background;
+  final Color foreground;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+  final VoidCallback? onClose;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+      color: background,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: foreground),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(text, style: TextStyle(fontSize: 14, height: 1.4, color: foreground)),
+                if (actionLabel != null)
+                  TextButton(
+                    onPressed: onAction,
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 36),
+                      foregroundColor: foreground,
+                      textStyle: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    child: Text(actionLabel!),
+                  ),
+              ],
+            ),
+          ),
+          if (onClose != null)
+            IconButton(
+              tooltip: 'Cerrar',
+              onPressed: onClose,
+              icon: Icon(Icons.close, size: 18, color: foreground),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Frame shared by the bottom sheets: title, keyboard-safe padding, max width.
 class SheetFrame extends StatelessWidget {
   const SheetFrame({super.key, required this.title, required this.children});
