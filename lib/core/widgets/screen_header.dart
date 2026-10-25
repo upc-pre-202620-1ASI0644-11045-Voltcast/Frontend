@@ -75,8 +75,8 @@ class HeaderAction extends StatelessWidget {
         icon: const Icon(Icons.add, size: 20),
         label: Text(label),
         style: FilledButton.styleFrom(
-          shape: const RoundedRectangleBorder(),
-          backgroundColor: AppColors.blue,
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.medium),
+          backgroundColor: AppColors.teal,
           padding: const EdgeInsets.symmetric(horizontal: 16),
           textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),

@@ -13,6 +13,27 @@ class AppColors {
   static const disabledFg = Color(0xFFC5CAD3);
   static const error = Color(0xFFDC2626);
   static const success = Color(0xFF16A34A);
+
+  // One hue per kind of action so buttons can be told apart at a glance.
+  static const teal = Color(0xFF0D9488); // create / confirm
+  static const violet = Color(0xFF7C3AED); // codes / secondary flows
+  static const orange = Color(0xFFEA580C); // swap / move
+  static const tealSoft = Color(0xFFE6F7F5);
+  static const violetSoft = Color(0xFFF3EEFF);
+  static const orangeSoft = Color(0xFFFFF1E6);
+}
+
+/// Shared corner radii.
+class AppRadius {
+  AppRadius._();
+
+  static const sm = 0.0;
+  static const md = 0.0;
+  static const lg = 0.0;
+
+  static final small = BorderRadius.circular(sm);
+  static final medium = BorderRadius.circular(md);
+  static final large = BorderRadius.circular(lg);
 }
 
 class AppTheme {
@@ -28,9 +49,18 @@ class AppTheme {
         surface: Colors.white,
       ),
       scaffoldBackgroundColor: Colors.white,
-      snackBarTheme: const SnackBarThemeData(
+      snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(),
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.medium),
+      ),
+      dialogTheme: DialogThemeData(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: AppRadius.large),
+      ),
+      bottomSheetTheme: const BottomSheetThemeData(
+        backgroundColor: Colors.white,
+        showDragHandle: false,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.lg))),
       ),
     );
   }

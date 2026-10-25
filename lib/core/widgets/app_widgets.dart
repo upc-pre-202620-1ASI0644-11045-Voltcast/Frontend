@@ -62,11 +62,18 @@ class StatRow extends StatelessWidget {
 
 /// Large outlined navigation button ("Componentes", "Códigos").
 class NavButton extends StatelessWidget {
-  const NavButton({super.key, required this.label, required this.onPressed, this.icon});
+  const NavButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.icon,
+    this.color = const Color(0xFF374151),
+  });
 
   final String label;
   final VoidCallback? onPressed;
   final IconData? icon;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
@@ -77,10 +84,10 @@ class NavButton extends StatelessWidget {
         icon: icon == null ? const SizedBox.shrink() : Icon(icon, size: 20),
         label: Text(label),
         style: OutlinedButton.styleFrom(
-          shape: const RoundedRectangleBorder(),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.medium),
           backgroundColor: Colors.white,
-          side: const BorderSide(color: Color(0xFFF0F1F4)),
-          foregroundColor: const Color(0xFF374151),
+          side: BorderSide(color: color.withValues(alpha: 0.35)),
+          foregroundColor: color,
           textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
@@ -108,7 +115,7 @@ class SmallActionButton extends StatelessWidget {
       child: OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
-          shape: const RoundedRectangleBorder(),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.small),
           side: BorderSide(color: onPressed == null ? AppColors.border : color.withValues(alpha: 0.35)),
           foregroundColor: color,
           disabledForegroundColor: AppColors.disabledFg,
@@ -141,7 +148,7 @@ class StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      color: background,
+      decoration: BoxDecoration(color: background, borderRadius: AppRadius.small),
       child: Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color)),
     );
   }
@@ -166,8 +173,10 @@ class InventoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: Colors.white,
+        borderRadius: AppRadius.large,
         border: Border.all(color: const Color(0xFFF0F1F4)),
       ),
       child: Column(
@@ -224,7 +233,7 @@ class AppDropdown<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     OutlineInputBorder border(Color color, [double width = 1]) => OutlineInputBorder(
-          borderRadius: BorderRadius.zero,
+          borderRadius: AppRadius.medium,
           borderSide: BorderSide(color: color, width: width),
         );
 
@@ -247,7 +256,7 @@ class AppDropdown<T> extends StatelessWidget {
               ),
           ],
           onChanged: onChanged,
-          borderRadius: BorderRadius.zero,
+          borderRadius: AppRadius.medium,
           style: const TextStyle(fontSize: 17, color: AppColors.ink),
           decoration: InputDecoration(
             contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
@@ -273,7 +282,7 @@ class SheetFrame extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 460),
@@ -324,6 +333,7 @@ class ShortcutTile extends StatelessWidget {
     final count = badge ?? 0;
     return InkWell(
       onTap: onTap,
+      borderRadius: AppRadius.large,
       child: AppCard(
         padding: const EdgeInsets.all(20),
         child: Row(
@@ -334,7 +344,7 @@ class ShortcutTile extends StatelessWidget {
                 Container(
                   width: 56,
                   height: 56,
-                  color: const Color(0xFFEEF3FF),
+                  decoration: BoxDecoration(color: const Color(0xFFEEF3FF), borderRadius: AppRadius.medium),
                   child: Icon(icon, color: AppColors.blue, size: 28),
                 ),
                 if (count > 0)

@@ -67,8 +67,6 @@ class _UsersView extends StatelessWidget {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(),
       builder: (_) => _EditUserSheet(user: user, controller: controller),
     );
   }

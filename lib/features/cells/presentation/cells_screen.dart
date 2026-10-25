@@ -13,6 +13,7 @@ import '../../../core/widgets/app_widgets.dart';
 import '../../../core/widgets/auth_visuals.dart';
 import '../../../core/widgets/screen_header.dart';
 import '../data/cell.dart';
+import '../data/component.dart';
 import 'inventory_controller.dart';
 
 class CellsScreen extends StatelessWidget {
@@ -33,6 +34,25 @@ class CellsScreen extends StatelessWidget {
     );
     if (ok && context.mounted) {
       await runAction(context, () => inventory.disableCell(cell), 'Celda ${cell.name} deshabilitada.');
+    }
+  }
+
+  /// Drop of [dragged] onto [target]: same type, different cells (the box only
+  /// accepts those). Asks first because a stray drop would change the inventory.
+  Future<void> _swap(BuildContext context, Component dragged, Component target) async {
+    final inventory = context.read<InventoryController>();
+    final ok = await confirmDialog(
+      context,
+      title: '¿Intercambiar componentes?',
+      action: 'Intercambiar',
+      actionColor: AppColors.orange,
+    );
+    if (ok && context.mounted) {
+      await runAction(
+        context,
+        () => inventory.swapComponents(dragged, target),
+        '${dragged.serialCode} y ${target.serialCode} intercambiados.',
+      );
     }
   }
 
@@ -96,15 +116,32 @@ class CellsScreen extends StatelessWidget {
           const SizedBox(height: 14),
           Row(
             children: [
-              Expanded(child: NavButton(label: 'Componentes', onPressed: () => context.push('/components'))),
+              Expanded(child: NavButton(label: 'Componentes', color: AppColors.blue, onPressed: () => context.push('/components'))),
               const SizedBox(width: 12),
-              Expanded(child: NavButton(label: 'Códigos', onPressed: () => context.push('/barcodes'))),
+              Expanded(child: NavButton(label: 'Códigos', color: AppColors.violet, onPressed: () => context.push('/barcodes'))),
             ],
           ),
           const SizedBox(height: 14),
           if (ordered.isEmpty)
             const InfoBox(text: 'Aún no hay celdas registradas. Crea la primera con "Nueva".')
-          else
+          else ...[
+            if (ordered.where((c) => c.isActive).length > 1)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 10, left: 4, right: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(Icons.swap_horiz, size: 18, color: AppColors.orange),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Mantén pulsado un cátodo o ánodo y suéltalo sobre el del mismo tipo de otra celda para intercambiarlos.',
+                        style: TextStyle(fontSize: 13, height: 1.4, color: AppColors.muted),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             InventoryCard(
               title: 'Inventario de celdas',
               trailing: '${ordered.length} ${ordered.length == 1 ? 'registro' : 'registros'}',
@@ -112,9 +149,11 @@ class CellsScreen extends StatelessWidget {
                 for (final cell in ordered)
                   _CellTile(
                     cell: cell,
-                    cathode: inventory.cathodeOf(cell)?.serialCode,
-                    anode: inventory.anodeOf(cell)?.serialCode,
+                    cathode: inventory.cathodeOf(cell),
+                    anode: inventory.anodeOf(cell),
                     busy: inventory.isCellBusy(cell.id),
+                    isComponentBusy: inventory.isComponentBusy,
+                    onSwap: (dragged, target) => _swap(context, dragged, target),
                     onBarcode: () => context.push('/barcodes?cell=${cell.id}'),
                     onEdit: () => showAppSheet<void>(
                       context,
@@ -124,6 +163,7 @@ class CellsScreen extends StatelessWidget {
                   ),
               ],
             ),
+          ],
         ],
       ),
     );
@@ -131,20 +171,31 @@ class CellsScreen extends StatelessWidget {
 }
 
 class _CellTile extends StatelessWidget {
+  Widget _box(String label, Component? component) => _ComponentBox(
+        label: label,
+        component: component,
+        enabled: !busy && (component == null || !isComponentBusy(component.id)),
+        onSwap: onSwap,
+      );
+
   const _CellTile({
     required this.cell,
     required this.cathode,
     required this.anode,
     required this.busy,
+    required this.isComponentBusy,
+    required this.onSwap,
     required this.onBarcode,
     required this.onEdit,
     required this.onDisable,
   });
 
   final Cell cell;
-  final String? cathode;
-  final String? anode;
+  final Component? cathode;
+  final Component? anode;
   final bool busy;
+  final bool Function(int componentId) isComponentBusy;
+  final void Function(Component dragged, Component target) onSwap;
   final VoidCallback onBarcode;
   final VoidCallback onEdit;
   final VoidCallback onDisable;
@@ -166,7 +217,7 @@ class _CellTile extends StatelessWidget {
                   width: 52,
                   height: 52,
                   alignment: Alignment.center,
-                  color: const Color(0xFFEEF3FF),
+                  decoration: BoxDecoration(color: const Color(0xFFEEF3FF), borderRadius: AppRadius.medium),
                   child: Text(
                     cell.name,
                     style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700, color: AppColors.blue),
@@ -188,9 +239,9 @@ class _CellTile extends StatelessWidget {
               const SizedBox(height: 14),
               Row(
                 children: [
-                  Expanded(child: _ComponentBox(label: 'Cátodo', serial: cathode)),
+                  Expanded(child: _box('Cátodo', cathode)),
                   const SizedBox(width: 12),
-                  Expanded(child: _ComponentBox(label: 'Ánodo', serial: anode)),
+                  Expanded(child: _box('Ánodo', anode)),
                 ],
               ),
             ],
@@ -215,12 +266,12 @@ class _CellTile extends StatelessWidget {
                   ),
                 ),
                 if (cell.isActive) ...[
-                  SmallActionButton(label: 'Código', onPressed: busy ? null : onBarcode),
+                  SmallActionButton(label: 'Código', color: AppColors.violet, onPressed: busy ? null : onBarcode),
                   IconButton(
                     tooltip: 'Editar',
                     onPressed: actionable ? onEdit : null,
                     icon: const Icon(Icons.edit_outlined, size: 20),
-                    color: AppColors.muted,
+                    color: AppColors.blue,
                   ),
                   busy
                       ? const SizedBox(
@@ -238,7 +289,7 @@ class _CellTile extends StatelessWidget {
                           tooltip: 'Deshabilitar',
                           onPressed: onDisable,
                           icon: const Icon(Icons.block_outlined, size: 20),
-                          color: AppColors.muted,
+                          color: AppColors.error,
                         ),
                 ],
               ],
@@ -251,33 +302,79 @@ class _CellTile extends StatelessWidget {
 }
 
 class _ComponentBox extends StatelessWidget {
-  const _ComponentBox({required this.label, required this.serial});
+  const _ComponentBox({
+    required this.label,
+    required this.component,
+    required this.enabled,
+    required this.onSwap,
+  });
 
   final String label;
-  final String? serial;
+  final Component? component;
+  final bool enabled;
+  final void Function(Component dragged, Component target) onSwap;
+
+  Widget _content(String? serial, {Color? background, Color? border}) => Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: background ?? AppColors.surface,
+          borderRadius: AppRadius.medium,
+          border: Border.all(color: border ?? Colors.transparent, width: 2),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
+            const SizedBox(height: 6),
+            Text(
+              serial ?? 'Sin asignar',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: serial == null ? FontWeight.w400 : FontWeight.w600,
+                color: serial == null ? AppColors.hint : AppColors.ink,
+              ),
+            ),
+          ],
+        ),
+      );
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      color: AppColors.surface,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(label, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
-          const SizedBox(height: 6),
-          Text(
-            serial ?? 'Sin asignar',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: serial == null ? FontWeight.w400 : FontWeight.w600,
-              color: serial == null ? AppColors.hint : AppColors.ink,
+    final c = component;
+    // Empty boxes cannot be swapped: there is nothing to exchange.
+    if (c == null) return _content(null);
+
+    return DragTarget<Component>(
+      onWillAcceptWithDetails: (d) => enabled && d.data.type == c.type && d.data.cellId != c.cellId,
+      onAcceptWithDetails: (d) => onSwap(d.data, c),
+      builder: (context, hovering, _) {
+        final box = _content(
+          c.serialCode,
+          background: hovering.isNotEmpty ? AppColors.orangeSoft : null,
+          border: hovering.isNotEmpty ? AppColors.orange : null,
+        );
+        return LongPressDraggable<Component>(
+          data: c,
+          maxSimultaneousDrags: enabled ? 1 : 0,
+          feedback: Material(
+            color: Colors.transparent,
+            child: SizedBox(
+              width: 150,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: AppRadius.medium,
+                  boxShadow: const [BoxShadow(color: Color(0x33000000), blurRadius: 14, offset: Offset(0, 6))],
+                ),
+                child: _content(c.serialCode, background: Colors.white, border: AppColors.orange),
+              ),
             ),
           ),
-        ],
-      ),
+          childWhenDragging: Opacity(opacity: 0.35, child: box),
+          child: box,
+        );
+      },
     );
   }
 }
@@ -389,6 +486,7 @@ class _CellSheetState extends State<_CellSheet> with SubmitState {
         ListenableBuilder(
           listenable: _name,
           builder: (context, _) => PrimaryButton(
+            color: AppColors.teal,
             label: _editing ? 'Guardar cambios' : 'Crear celda',
             loading: loading,
             onPressed: _canSave ? _save : null,

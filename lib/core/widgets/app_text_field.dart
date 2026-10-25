@@ -49,7 +49,7 @@ class _AppTextFieldState extends State<AppTextField> {
   late bool _hidden = widget.obscure;
 
   OutlineInputBorder _border(Color color, [double width = 1]) => OutlineInputBorder(
-        borderRadius: BorderRadius.zero,
+        borderRadius: AppRadius.medium,
         borderSide: BorderSide(color: color, width: width),
       );
 

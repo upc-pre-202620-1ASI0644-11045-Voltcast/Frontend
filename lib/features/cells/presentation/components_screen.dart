@@ -99,12 +99,6 @@ class _ComponentsScreenState extends State<ComponentsScreen> {
             ],
           ),
           const SizedBox(height: 14),
-          NavButton(
-            label: 'Intercambiar',
-            icon: Icons.swap_horiz,
-            onPressed: () => showAppSheet<void>(context, (_) => _SwapSheet(inventory: inventory)),
-          ),
-          const SizedBox(height: 14),
           _TypeFilter(value: _filter, onChanged: (v) => setState(() => _filter = v)),
           const SizedBox(height: 14),
           if (ordered.isEmpty)
@@ -153,11 +147,13 @@ class _TypeFilter extends StatelessWidget {
       final selected = value == type;
       return Expanded(
         child: InkWell(
+          borderRadius: AppRadius.medium,
           onTap: () => onChanged(type),
           child: Container(
             height: 44,
             alignment: Alignment.center,
             decoration: BoxDecoration(
+              borderRadius: AppRadius.medium,
               color: selected ? AppColors.ink : Colors.white,
               border: Border.all(color: selected ? AppColors.ink : const Color(0xFFF0F1F4)),
             ),
@@ -230,7 +226,10 @@ class _ComponentTile extends StatelessWidget {
                   width: 44,
                   height: 44,
                   alignment: Alignment.center,
-                  color: isCathode ? const Color(0xFFEEF3FF) : const Color(0xFFF6EEFF),
+                  decoration: BoxDecoration(
+                    color: isCathode ? const Color(0xFFEEF3FF) : AppColors.violetSoft,
+                    borderRadius: AppRadius.medium,
+                  ),
                   child: Text(
                     component.type.letter,
                     style: TextStyle(
@@ -278,6 +277,7 @@ class _ComponentTile extends StatelessWidget {
                           SmallActionButton(label: 'Editar', onPressed: onEdit),
                           SmallActionButton(
                             label: component.isInUse ? 'Reasignar' : 'Asignar',
+                            color: AppColors.teal,
                             onPressed: onAssign,
                           ),
                           // A component in use must be moved or its cell disabled
@@ -318,11 +318,13 @@ class _TypeSelector extends StatelessWidget {
               if (type.index > 0) const SizedBox(width: 12),
               Expanded(
                 child: InkWell(
+                  borderRadius: AppRadius.medium,
                   onTap: onChanged == null ? null : () => onChanged!(type),
                   child: Container(
                     height: 56,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
+                      borderRadius: AppRadius.medium,
                       color: value == type ? const Color(0xFFEEF3FF) : Colors.white,
                       border: Border.all(
                         color: value == type ? AppColors.blue : AppColors.border,
@@ -438,6 +440,7 @@ class _ComponentSheetState extends State<_ComponentSheet> with SubmitState {
         ListenableBuilder(
           listenable: _serial,
           builder: (context, _) => PrimaryButton(
+            color: AppColors.teal,
             label: _editing ? 'Guardar cambios' : 'Registrar componente',
             loading: loading,
             onPressed: _canSave ? _save : null,
@@ -503,115 +506,10 @@ class _AssignSheetState extends State<_AssignSheet> with SubmitState {
           const SizedBox(height: 16),
         ],
         PrimaryButton(
+          color: AppColors.teal,
           label: 'Asignar',
           loading: loading,
           onPressed: _selected == null || _selected!.id == widget.component.cellId ? null : _assign,
-        ),
-        const SizedBox(height: 12),
-        SecondaryButton(label: 'Cancelar', onPressed: loading ? null : () => Navigator.pop(context)),
-      ],
-    );
-  }
-}
-
-/// Swap two components of the same type that sit in different cells.
-class _SwapSheet extends StatefulWidget {
-  const _SwapSheet({required this.inventory});
-
-  final InventoryController inventory;
-
-  @override
-  State<_SwapSheet> createState() => _SwapSheetState();
-}
-
-class _SwapSheetState extends State<_SwapSheet> with SubmitState {
-  // Selections are kept as ids and resolved against the current lists on every
-  // build: after a swap the lists reload and the old objects (with their old
-  // cells) would no longer match any option.
-  int? _aId;
-  int? _bId;
-
-  List<Component> get _inUse => widget.inventory.components.where((c) => c.isInUse).toList();
-
-  Component? get _a => _inUse.where((c) => c.id == _aId).firstOrNull;
-
-  /// Same type as the first one and sitting in a different cell.
-  List<Component> _candidatesFor(Component a) =>
-      _inUse.where((c) => c.type == a.type && c.cellId != a.cellId).toList();
-
-  Component? get _b {
-    final a = _a;
-    if (a == null) return null;
-    return _candidatesFor(a).where((c) => c.id == _bId).firstOrNull;
-  }
-
-  String _label(Component c) =>
-      '${c.serialCode} · celda ${widget.inventory.cellById(c.cellId)?.name ?? '?'}';
-
-  Future<void> _swap() async {
-    final a = _a!;
-    final b = _b!;
-    final messenger = ScaffoldMessenger.of(context);
-    final navigator = Navigator.of(context);
-    final ok = await submit(() => widget.inventory.swapComponents(a, b));
-    if (ok) {
-      navigator.pop();
-      messenger.showSnackBar(SnackBar(content: Text('${a.serialCode} y ${b.serialCode} intercambiados.')));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final inUse = _inUse;
-    final a = _a;
-    final b = _b;
-    final candidates = a == null ? <Component>[] : _candidatesFor(a);
-
-    return SheetFrame(
-      title: 'Intercambiar componentes',
-      children: [
-        const Text(
-          'Solo se pueden intercambiar componentes del mismo tipo que estén en celdas distintas.',
-          style: TextStyle(fontSize: 14, height: 1.4, color: AppColors.muted),
-        ),
-        const SizedBox(height: 20),
-        if (inUse.length < 2)
-          const InfoBox(text: 'Necesitas al menos dos componentes asignados a celdas para intercambiar.')
-        else ...[
-          AppDropdown<Component>(
-            label: 'Primer componente',
-            value: a,
-            hint: 'Selecciona',
-            items: {for (final c in inUse) c: '${c.type.label} ${_label(c)}'},
-            onChanged: loading
-                ? null
-                : (c) => setState(() {
-                      _aId = c?.id;
-                      _bId = null;
-                    }),
-          ),
-          const SizedBox(height: 20),
-          AppDropdown<Component>(
-            label: 'Segundo componente',
-            value: b,
-            hint: a == null ? 'Elige primero el anterior' : 'Selecciona',
-            items: {for (final c in candidates) c: '${c.type.label} ${_label(c)}'},
-            onChanged: loading || a == null ? null : (c) => setState(() => _bId = c?.id),
-          ),
-          if (a != null && candidates.isEmpty) ...[
-            const SizedBox(height: 12),
-            const InfoBox(text: 'No hay otro componente del mismo tipo en una celda distinta.'),
-          ],
-        ],
-        const SizedBox(height: 20),
-        if (error != null) ...[
-          ErrorBanner(error!),
-          const SizedBox(height: 16),
-        ],
-        PrimaryButton(
-          label: 'Intercambiar',
-          loading: loading,
-          onPressed: a == null || b == null ? null : _swap,
         ),
         const SizedBox(height: 12),
         SecondaryButton(label: 'Cancelar', onPressed: loading ? null : () => Navigator.pop(context)),

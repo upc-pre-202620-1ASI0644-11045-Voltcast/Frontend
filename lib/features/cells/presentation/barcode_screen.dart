@@ -116,8 +116,10 @@ class _BarcodeScreenState extends State<BarcodeScreen> {
           ),
           const SizedBox(height: 16),
           Container(
+            clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
               color: Colors.white,
+              borderRadius: AppRadius.large,
               border: Border.all(color: const Color(0xFFF0F1F4)),
             ),
             child: Column(
@@ -176,11 +178,13 @@ class _BarcodeScreenState extends State<BarcodeScreen> {
           const SizedBox(height: 16),
           if (cell.hasBarcode)
             PrimaryButton(
+              color: AppColors.violet,
               label: 'Descargar PNG',
               onPressed: busy ? null : () => _download(cell),
             )
           else
             PrimaryButton(
+              color: AppColors.teal,
               label: 'Generar código',
               loading: busy,
               onPressed: inventory.hasCompletePair(cell) ? () => _generate(inventory, cell) : null,

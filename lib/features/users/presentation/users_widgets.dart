@@ -25,7 +25,10 @@ class UserAvatar extends StatelessWidget {
       height: size,
       alignment: Alignment.center,
       // Pending requests have no history yet: neutral grey like the mock-up.
-      color: user.isPending ? AppColors.disabledBg : _avatarColors[user.id % _avatarColors.length],
+      decoration: BoxDecoration(
+        borderRadius: AppRadius.small,
+        color: user.isPending ? AppColors.disabledBg : _avatarColors[user.id % _avatarColors.length],
+      ),
       child: Text(
         user.initials,
         style: TextStyle(
@@ -49,7 +52,7 @@ class _Chip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      color: background,
+      decoration: BoxDecoration(color: background, borderRadius: AppRadius.small),
       child: Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color)),
     );
   }
@@ -105,8 +108,10 @@ class AccountCard extends StatelessWidget {
     return Opacity(
       opacity: user.isDisabled ? 0.6 : 1,
       child: Container(
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           color: Colors.white,
+          borderRadius: AppRadius.large,
           border: Border.all(color: const Color(0xFFF0F1F4)),
         ),
         child: Column(
@@ -168,7 +173,7 @@ class AccountCard extends StatelessWidget {
                       tooltip: 'Editar',
                       onPressed: canAct ? onEdit : null,
                       icon: const Icon(Icons.edit_outlined, size: 20),
-                      color: AppColors.muted,
+                      color: AppColors.blue,
                     ),
                   ),
                   const VerticalDivider(width: 1, color: Color(0xFFF0F1F4)),
@@ -223,10 +228,10 @@ class PendingRequestCard extends StatelessWidget {
       child: FilledButton(
         onPressed: busy ? null : onApprove,
         style: FilledButton.styleFrom(
-          shape: const RoundedRectangleBorder(),
-          backgroundColor: AppColors.blue,
-          // Stays blue while the request runs so the white spinner is visible.
-          disabledBackgroundColor: AppColors.blue,
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.medium),
+          backgroundColor: AppColors.teal,
+          // Stays coloured while the request runs so the white spinner is visible.
+          disabledBackgroundColor: AppColors.teal,
           padding: const EdgeInsets.symmetric(horizontal: 18),
         ),
         child: busy
@@ -243,9 +248,9 @@ class PendingRequestCard extends StatelessWidget {
       child: OutlinedButton(
         onPressed: busy ? null : onReject,
         style: OutlinedButton.styleFrom(
-          shape: const RoundedRectangleBorder(),
-          side: const BorderSide(color: AppColors.border),
-          foregroundColor: const Color(0xFF374151),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.medium),
+          side: BorderSide(color: AppColors.error.withValues(alpha: 0.35)),
+          foregroundColor: AppColors.error,
           padding: const EdgeInsets.symmetric(horizontal: 18),
         ),
         child: const Text('Rechazar', style: TextStyle(fontWeight: FontWeight.w600)),
@@ -256,6 +261,7 @@ class PendingRequestCard extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
+        borderRadius: AppRadius.large,
         border: Border.all(color: const Color(0xFFF0F1F4)),
       ),
       // Wide: avatar | text | buttons on one row. Narrow: buttons drop below.

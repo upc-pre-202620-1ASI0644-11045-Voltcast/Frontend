@@ -1,21 +1,21 @@
 import 'package:flutter/material.dart';
 
 import 'network/api_exception.dart';
+import 'theme/app_theme.dart';
 
-/// Square-cornered confirmation dialog. Returns true when the user confirms.
+/// Confirmation dialog. Returns true when the user confirms.
 Future<bool> confirmDialog(
   BuildContext context, {
   required String title,
-  required String message,
+  String? message,
   required String action,
+  Color actionColor = AppColors.error,
 }) async {
   final result = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
-      shape: const RoundedRectangleBorder(),
-      backgroundColor: Colors.white,
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-      content: Text(message),
+      content: message == null ? null : Text(message),
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context, false),
@@ -23,6 +23,7 @@ Future<bool> confirmDialog(
         ),
         TextButton(
           onPressed: () => Navigator.pop(context, true),
+          style: TextButton.styleFrom(foregroundColor: actionColor),
           child: Text(action),
         ),
       ],
@@ -47,8 +48,6 @@ Future<T?> showAppSheet<T>(BuildContext context, WidgetBuilder builder) {
   return showModalBottomSheet<T>(
     context: context,
     isScrollControlled: true,
-    backgroundColor: Colors.white,
-    shape: const RoundedRectangleBorder(),
     builder: builder,
   );
 }
