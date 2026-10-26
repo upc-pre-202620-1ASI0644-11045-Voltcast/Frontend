@@ -8,7 +8,7 @@ class AppColors {
   static const muted = Color(0xFF8B93A7);
   static const hint = Color(0xFFC4C9D4);
   static const border = Color(0xFFE5E7EB);
-  static const surface = Color(0xFFF8F9FB);
+  static const surface = Color(0xFFF1F4F9);
   static const disabledBg = Color(0xFFF3F4F6);
   static const disabledFg = Color(0xFFC5CAD3);
   static const error = Color(0xFFDC2626);
@@ -21,15 +21,25 @@ class AppColors {
   static const tealSoft = Color(0xFFE6F7F5);
   static const violetSoft = Color(0xFFF3EEFF);
   static const orangeSoft = Color(0xFFFFF1E6);
+
+  // Signed-in screens: blue header, lime call to action, navy bottom bar.
+  static const headerTop = Color(0xFF2563EB);
+  static const headerBottom = Color(0xFF3730A3);
+  static const lime = Color(0xFFBEF264);
+  static const navy = Color(0xFF0F172A);
+  static const blueSoft = Color(0xFFE3ECFD);
+  static const errorSoft = Color(0xFFFDE8E8);
+  static const field = Color(0xFFEEF1F6);
+  static const amber = Color(0xFFD97706);
 }
 
 /// Shared corner radii.
 class AppRadius {
   AppRadius._();
 
-  static const sm = 0.0;
-  static const md = 0.0;
-  static const lg = 0.0;
+  static const sm = 10.0;
+  static const md = 14.0;
+  static const lg = 22.0;
 
   static final small = BorderRadius.circular(sm);
   static final medium = BorderRadius.circular(md);

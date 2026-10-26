@@ -17,10 +17,12 @@ Future<FakeInventoryBackend> _pump(
   WidgetTester tester, {
   FakeInventoryBackend? backend,
   double height = 800,
+  // Wide enough to drag between neighbouring cards of a section's row.
+  double width = 400,
   ProductionLineScreen screen = const ProductionLineScreen(),
 }) async {
   CellSounds.enabled = false; // no audio backend in widget tests
-  tester.view.physicalSize = Size(400, height);
+  tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
 
@@ -50,7 +52,9 @@ Future<FakeInventoryBackend> _pump(
 Future<void> _tapKey(WidgetTester tester, String key) async {
   final finder = find.byKey(ValueKey(key));
   if (finder.evaluate().isEmpty) {
-    await tester.dragUntilVisible(finder, find.byType(CustomScrollView), const Offset(0, -200));
+    // Off the line's screen, or on a later page of section A's row (A2…).
+    final onPage = await _swipeRowUntil(tester, finder);
+    if (!onPage) await tester.dragUntilVisible(finder, find.byType(CustomScrollView), const Offset(0, -200));
   }
   // Only scroll when needed: ensureVisible would also move what is already on screen.
   final screen = Offset.zero & (tester.view.physicalSize / tester.view.devicePixelRatio);
@@ -62,6 +66,29 @@ Future<void> _tapKey(WidgetTester tester, String key) async {
   await tester.pumpAndSettle();
 }
 
+/// Swipes section A's row (one cell per page) towards its end until [finder] is built.
+Future<bool> _swipeRowUntil(WidgetTester tester, Finder finder) async {
+  for (var i = 0; i < 12 && finder.evaluate().isEmpty; i++) {
+    await _turnRow(tester, 1);
+  }
+  return finder.evaluate().isNotEmpty;
+}
+
+/// Turns section A's row one cell forwards (1) or back (-1).
+Future<void> _turnRow(WidgetTester tester, int pages) async {
+  final width = tester.view.physicalSize.width / tester.view.devicePixelRatio;
+  await tester.drag(find.byType(PageView).first, Offset(-pages * width * 0.6, 0));
+  await tester.pumpAndSettle();
+}
+
+/// Opens A1 and A2 and comes back to A1, the second one a page away.
+Future<void> _openA1A2(WidgetTester tester) async {
+  await _openCell(tester, 1);
+  await _turnRow(tester, 1);
+  await _openCell(tester, 2);
+  await _turnRow(tester, -1);
+}
+
 /// Opens a closed (complete) cell through its lid and the confirmation.
 Future<void> _openCell(WidgetTester tester, int id) async {
   await _tapKey(tester, 'line-lid-$id');
@@ -69,6 +96,12 @@ Future<void> _openCell(WidgetTester tester, int id) async {
   await tester.tap(find.text('Abrir'));
   await tester.pumpAndSettle();
 }
+
+/// The component view is open.
+final _inView = find.byKey(const ValueKey('component-panel'));
+
+/// [text] on the component view's sheet (the line underneath shows serials too).
+Finder _inPanel(String text) => find.descendant(of: _inView, matching: find.text(text));
 
 InventoryController _inventory(WidgetTester tester) =>
     Provider.of<InventoryController>(tester.element(find.byType(ProductionLineScreen)), listen: false);
@@ -78,18 +111,28 @@ void main() {
     var signedOut = false;
     await _pump(
       tester,
-      screen: ProductionLineScreen(userName: 'Oscar', onLogout: () => signedOut = true),
+      screen: ProductionLineScreen(userName: 'Oscar', userRole: 'Supervisor', onLogout: () => signedOut = true),
     );
 
-    expect(find.text('Celdas'), findsOneWidget);
-    expect(find.text('Oscar · 4 celdas'), findsOneWidget);
+    expect(find.text('Hola, Oscar'), findsOneWidget);
+    expect(find.text('Supervisor · 4 celdas'), findsOneWidget);
     expect(find.byTooltip('Volver'), findsNothing); // the home tab has nowhere to go back to
 
     await tester.tap(find.byTooltip('Cerrar sesión'));
     expect(signedOut, isTrue);
   });
 
-  testWidgets('lays out 150 cells from the backend but only builds the visible ones', (tester) async {
+  testWidgets('groups the cells by section, one row each', (tester) async {
+    await _pump(tester, height: 1400);
+
+    expect(find.text('EL A'), findsOneWidget);
+    expect(find.text('2 celdas · desliza →'), findsOneWidget); // A1, A2
+    expect(find.text('EL B'), findsOneWidget);
+    expect(find.text('EL C'), findsOneWidget);
+    expect(find.text('1 celda'), findsNWidgets(2)); // B3, C4
+  });
+
+  testWidgets('lays out 150 cells of a section in a row but only builds the visible ones', (tester) async {
     final backend = FakeInventoryBackend();
     backend.cells.addAll([
       for (var i = 5; i <= 150; i++) {'id': i, 'name': 'L$i', 'barcode_value': null, 'is_visible': true},
@@ -97,12 +140,31 @@ void main() {
     await _pump(tester, backend: backend);
 
     expect(find.text('150 celdas'), findsOneWidget);
-    expect(find.textContaining('Celda '), findsWidgets);
-    expect(find.textContaining('Celda ').evaluate().length, lessThan(10));
+    await tester.dragUntilVisible(find.text('Celda L5'), find.byType(CustomScrollView), const Offset(0, -200));
+    expect(find.text('146 celdas · desliza →'), findsOneWidget);
+    expect(find.textContaining('Celda L'), findsWidgets);
+    expect(find.textContaining('Celda L').evaluate().length, lessThan(10));
 
-    await tester.dragUntilVisible(find.text('Celda L150'), find.byType(CustomScrollView), const Offset(0, -2000));
+    // Pinned to the element: the finder through L5 stops matching once L5 is scrolled away.
+    final rowElement = find.ancestor(of: find.text('Celda L5'), matching: find.byType(Scrollable)).evaluate().first;
+    final row = find.byElementPredicate((e) => e == rowElement);
+    await tester.dragUntilVisible(find.text('Celda L150'), row, const Offset(-2000, 0));
     expect(find.text('Celda L150'), findsOneWidget);
-    expect(find.text('Celda A1'), findsNothing); // scrolled out and disposed
+    expect(find.text('Celda L5'), findsNothing); // scrolled out and disposed
+  });
+
+  testWidgets('the search box filters the cells by code', (tester) async {
+    await _pump(tester, height: 1400);
+
+    await tester.enterText(find.byType(TextField), 'cat-014'); // A2's cathode
+    await tester.pumpAndSettle();
+    expect(find.text('Celda A2'), findsOneWidget);
+    expect(find.text('Celda A1'), findsNothing);
+    expect(find.text('EL B'), findsNothing);
+
+    await tester.enterText(find.byType(TextField), 'zzz');
+    await tester.pumpAndSettle();
+    expect(find.text('Ninguna celda coincide con la búsqueda.'), findsOneWidget);
   });
 
   testWidgets('a cell with both components starts closed and only opens after confirming', (tester) async {
@@ -157,21 +219,21 @@ void main() {
 
     await _tapKey(tester, 'line-anode-1');
 
-    expect(find.text('Volver a la línea'), findsOneWidget);
-    expect(find.text('Vista del componente'), findsOneWidget);
-    expect(find.text('Ánodo · ANO-001'), findsOneWidget);
-    expect(find.text('#2'), findsOneWidget);
-    expect(find.text('CELL-00001'), findsNWidgets(2)); // the tile's code tag (under the view) + panel
+    expect(_inView, findsOneWidget);
+    expect(_inPanel('ANO-001'), findsOneWidget);
+    expect(_inPanel('#2'), findsOneWidget);
+    expect(_inPanel('En uso'), findsNWidgets(2)); // pill + state
+    expect(_inPanel('CELL-00001'), findsOneWidget);
     expect(find.textContaining('Actualizado a las'), findsOneWidget);
     expect(backend.requests.length, greaterThan(before)); // fetched again on entering
 
-    await tester.tap(find.text('Cátodo'));
+    await tester.tap(find.byKey(const ValueKey('focus-cathode')));
     await tester.pumpAndSettle();
-    expect(find.text('Cátodo · CAT-001'), findsOneWidget);
+    expect(_inPanel('CAT-001'), findsOneWidget);
 
-    await tester.tap(find.text('Volver a la línea'));
+    await tester.tap(find.byTooltip('Volver a la línea'));
     await tester.pumpAndSettle();
-    expect(find.text('Vista del componente'), findsNothing);
+    expect(_inView, findsNothing);
     expect(find.text('Celda A1'), findsOneWidget);
   });
 
@@ -194,7 +256,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(painter().pitch as double, pitch); // a vertical swipe does not tilt it
     expect(painter().yaw as double, spun);
-    expect(find.text('Vista del componente'), findsOneWidget); // still in the view
+    expect(_inView, findsOneWidget); // still in the view
   });
 
   testWidgets('an empty slot says the component is missing', (tester) async {
@@ -210,32 +272,61 @@ void main() {
     await _openCell(tester, 2);
 
     await _tapKey(tester, 'line-anode-2');
-    expect(find.text('Vista del componente'), findsOneWidget);
+    expect(_inView, findsOneWidget);
 
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
-    expect(find.text('Vista del componente'), findsNothing);
+    expect(_inView, findsNothing);
     expect(find.text('Celdas'), findsOneWidget);
   });
 
-  testWidgets('each cell has a code tag: its barcode or "Generar código"', (tester) async {
+  testWidgets('each cell has a code button: its barcode or "Generar código"', (tester) async {
     await _pump(tester);
 
     expect(
-      find.descendant(of: find.byKey(const ValueKey('line-code-1')), matching: find.text('CELL-00001')),
+      find.descendant(of: find.byKey(const ValueKey('line-code-1')), matching: find.byTooltip('Código CELL-00001')),
       findsOneWidget,
     );
+    await _turnRow(tester, 1);
     expect(
-      find.descendant(of: find.byKey(const ValueKey('line-code-2')), matching: find.text('Generar código de barras')),
+      find.descendant(
+        of: find.byKey(const ValueKey('line-code-2')),
+        matching: find.byTooltip('Generar código de barras'),
+      ),
       findsOneWidget,
     );
+  });
+
+  testWidgets('a section shows one centred cell at a time and swipes to the next', (tester) async {
+    await _pump(tester);
+
+    expect(find.text('Celda A1'), findsOneWidget);
+    expect(find.text('Celda A2'), findsNothing); // no peek of the next card
+    // Centred: the card's first and last controls sit the same distance from
+    // the screen's edges (16 gutter + 12 card padding).
+    final lock = tester.getRect(find.ancestor(of: find.text('Abrir celda').first, matching: find.byType(TextButton)));
+    final delete = tester.getRect(find.byTooltip('Eliminar celda').first);
+    expect(lock.left, 28);
+    expect(400 - delete.right, 28);
+
+    await _turnRow(tester, 1);
+    expect(find.text('Celda A2'), findsOneWidget);
+    expect(find.text('Celda A1'), findsNothing);
+  });
+
+  testWidgets('"Ver componentes" opens the view on the anode', (tester) async {
+    await _pump(tester);
+
+    await tester.tap(find.text('Ver componentes').first);
+    await tester.pumpAndSettle();
+    expect(_inPanel('ANO-001'), findsOneWidget);
   });
 
   testWidgets('dragging a cathode onto another open cell\'s cathode swaps them after confirming', (tester) async {
     final backend = await _pump(tester, height: 1400);
-    await _openCell(tester, 1);
-    await _openCell(tester, 2);
+    await _openA1A2(tester);
 
+    // A2 is the next page: held at the edge, the row turns to it.
     await _drag(tester, from: 'line-cathode-1', to: 'line-cathode-2');
     expect(find.text('¿Intercambiar componentes?'), findsOneWidget);
     await tester.tap(find.text('Intercambiar'));
@@ -244,14 +335,23 @@ void main() {
     expect(backend.component(1)['cell_id'], 2);
     expect(backend.component(3)['cell_id'], 1);
     expect(find.text('CAT-001 y CAT-014 intercambiados.'), findsOneWidget);
-    expect(find.text('Vista del componente'), findsNothing); // a drag does not enter the cell
+    expect(_inView, findsNothing); // a drag does not enter the cell
     expect(find.byKey(const ValueKey('line-lid-1')), findsNothing); // both stay open after a swap
   });
 
   testWidgets('a swap pulls the bar out, then both bars fly to each other\'s slot', (tester) async {
-    await _pump(tester, height: 1400);
+    // B3 gets a cathode only, so it stays open and its bar is on screen with A1's.
+    final backend = FakeInventoryBackend();
+    backend.components.add({
+      'id': 30,
+      'type': 'CATHODE',
+      'serial_code': 'CAT-300',
+      'is_active': true,
+      'is_visible': true,
+      'cell_id': 3,
+    });
+    await _pump(tester, backend: backend, height: 1400);
     await _openCell(tester, 1);
-    await _openCell(tester, 2);
     Finder serialIn(String slot, String serial) =>
         find.descendant(of: find.byKey(ValueKey(slot)), matching: find.text(serial));
     expect(serialIn('line-cathode-1', 'CAT-001'), findsOneWidget);
@@ -261,9 +361,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     // Out of its slot and in the hand.
     expect(serialIn('line-cathode-1', 'CAT-001'), findsNothing);
-    expect(find.text('CAT-001'), findsOneWidget);
+    expect(find.text('CAT-001'), findsNWidgets(2)); // the one in the hand + the card's label
 
-    await gesture.moveTo(tester.getCenter(find.byKey(const ValueKey('line-cathode-2'))));
+    await gesture.moveTo(tester.getCenter(find.byKey(const ValueKey('line-cathode-3'))));
     await tester.pump();
     await gesture.up();
     await tester.pumpAndSettle();
@@ -271,12 +371,12 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.byKey(const ValueKey('flying-1')), findsOneWidget);
-    expect(find.byKey(const ValueKey('flying-3')), findsOneWidget);
+    expect(find.byKey(const ValueKey('flying-30')), findsOneWidget);
 
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('flying-1')), findsNothing);
-    expect(serialIn('line-cathode-2', 'CAT-001'), findsOneWidget);
-    expect(serialIn('line-cathode-1', 'CAT-014'), findsOneWidget);
+    expect(serialIn('line-cathode-3', 'CAT-001'), findsOneWidget);
+    expect(serialIn('line-cathode-1', 'CAT-300'), findsOneWidget);
   });
 
   testWidgets('dropping on an empty slot of the same type explains why it cannot swap', (tester) async {
@@ -315,8 +415,7 @@ void main() {
 
   testWidgets('a component cannot be dropped on one of the other type', (tester) async {
     final backend = await _pump(tester, height: 1400);
-    await _openCell(tester, 1);
-    await _openCell(tester, 2);
+    await _openA1A2(tester);
 
     await _drag(tester, from: 'line-cathode-1', to: 'line-anode-2');
 
@@ -324,10 +423,10 @@ void main() {
     expect(backend.swapRequests, 0);
   });
 
-  testWidgets('dragging near the bottom edge scrolls the line to reach a distant cell', (tester) async {
+  testWidgets('holding a bar at the right edge turns the section to reach a distant cell', (tester) async {
     final backend = FakeInventoryBackend();
     backend.cells.addAll([
-      for (var i = 5; i <= 12; i++) {'id': i, 'name': 'L$i', 'barcode_value': null, 'is_visible': true},
+      for (var i = 5; i <= 12; i++) {'id': i, 'name': 'A$i', 'barcode_value': null, 'is_visible': true},
     ]);
     backend.components.add({
       'id': 100,
@@ -340,20 +439,8 @@ void main() {
     await _pump(tester, backend: backend);
     await _openCell(tester, 1);
 
-    final gesture = await tester.startGesture(tester.getCenter(find.byKey(const ValueKey('line-cathode-1'))));
-    await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
-    final target = find.byKey(const ValueKey('line-cathode-12'));
-    // Keep the finger at the bottom edge until the far cell scrolls into view
-    // (the cell the drag started from is disposed on the way).
-    // Built is not enough: tiles just below the screen are already built.
-    for (var i = 0; i < 400 && (target.evaluate().isEmpty || tester.getCenter(target).dy > 650); i++) {
-      await gesture.moveTo(Offset(200, i.isEven ? 790 : 789));
-      await tester.pump();
-    }
-    await gesture.moveTo(tester.getCenter(target));
-    await tester.pump();
-    await gesture.up();
-    await tester.pumpAndSettle();
+    // Nine cells on: the cell the drag started from is disposed on the way.
+    await _drag(tester, from: 'line-cathode-1', to: 'line-cathode-12');
 
     await tester.tap(find.text('Intercambiar'));
     await tester.pumpAndSettle();
@@ -391,7 +478,7 @@ void main() {
     testWidgets('a cell without components is removed from the line', (tester) async {
       final backend = await _pump(tester, height: 1400);
 
-      await tester.tap(find.byTooltip('Eliminar celda').at(2)); // B3
+      await tester.tap(find.byTooltip('Eliminar celda').at(1)); // B3 (A2 is on the next page)
       await tester.pumpAndSettle();
       expect(find.text('¿Eliminar la celda B3?'), findsOneWidget);
       await tester.tap(find.text('Eliminar'));
@@ -406,7 +493,7 @@ void main() {
       await _openCell(tester, 1);
       await _tapKey(tester, 'line-anode-1');
 
-      await tester.tap(find.text('Editar'));
+      await tester.tap(_inPanel('Editar'));
       await tester.pumpAndSettle();
       expect(find.text('Editar componente'), findsOneWidget);
       await tester.tap(find.text('Cancelar'));
@@ -427,16 +514,26 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(backend.component(5)['cell_id'], 3);
-      expect(find.text('Cátodo · CAT-099'), findsOneWidget);
+      expect(_inPanel('CAT-099'), findsOneWidget);
     });
   });
 }
 
-/// Long-presses the zone [from] and drops it on the zone [to].
+/// Long-presses the zone [from] and drops it on the zone [to]. A zone on a
+/// later page of the same row is reached by holding the bar at the right edge,
+/// which turns the row one cell at a time.
 Future<void> _drag(WidgetTester tester, {required String from, required String to}) async {
-  final gesture = await tester.startGesture(tester.getCenter(find.byKey(ValueKey(from))));
+  final start = tester.getCenter(find.byKey(ValueKey(from)));
+  final gesture = await tester.startGesture(start);
   await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
-  await gesture.moveTo(tester.getCenter(find.byKey(ValueKey(to))));
+  final target = find.byKey(ValueKey(to));
+  final width = tester.view.physicalSize.width / tester.view.devicePixelRatio;
+  for (var i = 0; i < 200 && (target.evaluate().isEmpty || tester.getCenter(target).dx > width); i++) {
+    await gesture.moveTo(Offset(width - 4 - (i % 2), start.dy));
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+  await tester.pump(const Duration(milliseconds: 400)); // the last turn settles
+  await gesture.moveTo(tester.getCenter(target));
   await tester.pump();
   await gesture.up();
   await tester.pumpAndSettle();

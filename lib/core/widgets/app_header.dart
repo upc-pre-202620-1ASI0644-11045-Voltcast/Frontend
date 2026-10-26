@@ -41,22 +41,20 @@ class AppHeader extends StatelessWidget {
   }
 }
 
-/// White card with the 1px light border used across the signed-in screens.
+/// Soft white card used across the signed-in screens.
 class AppCard extends StatelessWidget {
   const AppCard({super.key, required this.child, this.padding = const EdgeInsets.all(16)});
 
   final Widget child;
   final EdgeInsetsGeometry padding;
 
+  static const shadow = [BoxShadow(color: Color(0x140F172A), blurRadius: 18, offset: Offset(0, 6))];
+
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: padding,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: AppRadius.large,
-        border: Border.all(color: const Color(0xFFF0F1F4)),
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: AppRadius.large, boxShadow: AppCard.shadow),
       child: child,
     );
   }

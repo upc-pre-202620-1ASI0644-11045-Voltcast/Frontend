@@ -2,15 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../../../core/format.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/app_header.dart';
+import '../../../core/widgets/app_widgets.dart';
 import '../../auth/data/auth_user.dart';
 
-const _avatarColors = [
-  AppColors.blue,
-  Color(0xFF111827),
-  Color(0xFF374151),
-  Color(0xFF6B7FD7),
-  Color(0xFF0F172A),
-];
+const _avatarColors = [AppColors.blue, Color(0xFF111827), Color(0xFF374151), Color(0xFF6B7FD7), Color(0xFF0F172A)];
 
 class UserAvatar extends StatelessWidget {
   const UserAvatar({super.key, required this.user, this.size = 56});
@@ -26,8 +22,15 @@ class UserAvatar extends StatelessWidget {
       alignment: Alignment.center,
       // Pending requests have no history yet: neutral grey like the mock-up.
       decoration: BoxDecoration(
-        borderRadius: AppRadius.small,
-        color: user.isPending ? AppColors.disabledBg : _avatarColors[user.id % _avatarColors.length],
+        shape: BoxShape.circle,
+        color: user.isPending ? AppColors.disabledBg : null,
+        gradient: user.isPending
+            ? null
+            : LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [_avatarColors[user.id % _avatarColors.length], AppColors.headerBottom],
+              ),
       ),
       child: Text(
         user.initials,
@@ -52,8 +55,11 @@ class _Chip extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(color: background, borderRadius: AppRadius.small),
-      child: Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color)),
+      decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(20)),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color),
+      ),
     );
   }
 }
@@ -81,20 +87,14 @@ class RoleChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return user.isAdmin
-        ? const _Chip('Supervisor', background: AppColors.ink, color: Colors.white)
+        ? const _Chip('Supervisor', background: AppColors.blueSoft, color: AppColors.blue)
         : const _Chip('Ingeniero', background: Color(0xFFEEF3FF), color: AppColors.blue);
   }
 }
 
-/// Card in the "USUARIOS" grid with edit and enable/disable actions.
+/// Row of the "Equipo" list with edit and enable/disable actions.
 class AccountCard extends StatelessWidget {
-  const AccountCard({
-    super.key,
-    required this.user,
-    required this.busy,
-    required this.onEdit,
-    required this.onToggle,
-  });
+  const AccountCard({super.key, required this.user, required this.busy, required this.onEdit, required this.onToggle});
 
   final AuthUser user;
   final bool busy;
@@ -108,41 +108,29 @@ class AccountCard extends StatelessWidget {
     return Opacity(
       opacity: user.isDisabled ? 0.6 : 1,
       child: Container(
-        clipBehavior: Clip.antiAlias,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: AppRadius.large,
-          border: Border.all(color: const Color(0xFFF0F1F4)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(color: Colors.white, borderRadius: AppRadius.large, boxShadow: AppCard.shadow),
+        child: Row(
           children: [
-            Padding(
-              padding: const EdgeInsets.all(16),
+            UserAvatar(user: user, size: 52),
+            const SizedBox(width: 12),
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      UserAvatar(user: user, size: 48),
-                      const SizedBox(width: 8),
-                      // Cards are ~150px wide on phones: the chip shrinks
-                      // instead of overflowing next to the avatar.
-                      Expanded(
-                        child: Align(
-                          alignment: Alignment.topRight,
-                          child: FittedBox(fit: BoxFit.scaleDown, child: StatusChip(user: user)),
+                      Flexible(
+                        child: Text(
+                          user.fullName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      StatusChip(user: user),
                     ],
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    user.fullName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
                   ),
                   const SizedBox(height: 2),
                   Text(
@@ -151,53 +139,45 @@ class AccountCard extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontSize: 13, color: AppColors.muted),
                   ),
-                  const SizedBox(height: 12),
-                  RoleChip(user: user),
-                  if (user.createdAt != null) ...[
-                    const SizedBox(height: 12),
-                    Text(
-                      'Desde ${formatShortDate(user.createdAt!)}',
-                      style: const TextStyle(fontSize: 12, color: AppColors.hint),
-                    ),
-                  ],
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      RoleChip(user: user),
+                      if (user.createdAt != null)
+                        Text(
+                          'Desde ${formatShortDate(user.createdAt!)}',
+                          style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                        ),
+                    ],
+                  ),
                 ],
               ),
             ),
-            const Divider(height: 1, color: Color(0xFFF0F1F4)),
-            SizedBox(
-              height: 48,
-              child: Row(
-                children: [
-                  Expanded(
-                    child: IconButton(
-                      tooltip: 'Editar',
-                      onPressed: canAct ? onEdit : null,
-                      icon: const Icon(Icons.edit_outlined, size: 20),
-                      color: AppColors.blue,
+            const SizedBox(width: 8),
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CircleAction(tooltip: 'Editar', icon: Icons.edit_outlined, size: 38, onPressed: canAct ? onEdit : null),
+                const SizedBox(height: 8),
+                if (busy)
+                  const SizedBox.square(
+                    dimension: 38,
+                    child: Padding(
+                      padding: EdgeInsets.all(10),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.blue),
                     ),
+                  )
+                else
+                  CircleAction(
+                    tooltip: user.isDisabled ? 'Habilitar' : 'Deshabilitar',
+                    icon: user.isDisabled ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                    size: 38,
+                    onPressed: canAct ? onToggle : null,
                   ),
-                  const VerticalDivider(width: 1, color: Color(0xFFF0F1F4)),
-                  Expanded(
-                    child: busy
-                        ? const Center(
-                            child: SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: AppColors.blue),
-                            ),
-                          )
-                        : IconButton(
-                            tooltip: user.isDisabled ? 'Habilitar' : 'Deshabilitar',
-                            onPressed: canAct ? onToggle : null,
-                            icon: Icon(
-                              user.isDisabled ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                              size: 20,
-                            ),
-                            color: AppColors.muted,
-                          ),
-                  ),
-                ],
-              ),
+              ],
             ),
           ],
         ),
@@ -259,11 +239,7 @@ class PendingRequestCard extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: AppRadius.large,
-        border: Border.all(color: const Color(0xFFF0F1F4)),
-      ),
+      decoration: BoxDecoration(color: Colors.white, borderRadius: AppRadius.large, boxShadow: AppCard.shadow),
       // Wide: avatar | text | buttons on one row. Narrow: buttons drop below.
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -320,26 +296,6 @@ class PendingRequestCard extends StatelessWidget {
             ],
           );
         },
-      ),
-    );
-  }
-}
-
-/// "SOLICITUDES PENDIENTES · 2" style section label.
-class SectionLabel extends StatelessWidget {
-  const SectionLabel(this.text, {super.key});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      text.toUpperCase(),
-      style: const TextStyle(
-        fontSize: 13,
-        fontWeight: FontWeight.w700,
-        letterSpacing: 1.6,
-        color: AppColors.muted,
       ),
     );
   }

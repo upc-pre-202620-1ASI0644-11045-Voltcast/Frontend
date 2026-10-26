@@ -8,6 +8,7 @@ import 'features/cells/presentation/barcode_screen.dart';
 import 'features/cells/presentation/inventory_controller.dart';
 import 'features/cells/presentation/cell_screen.dart';
 import 'features/cells/presentation/storage_screen.dart';
+import 'features/cells/presentation/swap_screen.dart';
 import 'features/auth/presentation/screens/forgot_code_screen.dart';
 import 'features/auth/presentation/screens/forgot_email_screen.dart';
 import 'features/auth/presentation/screens/forgot_new_password_screen.dart';
@@ -67,6 +68,7 @@ GoRouter buildRouter(AuthController auth) {
                     path: '/line',
                     builder: (_, _) => ProductionLineScreen(
                       userName: auth.user?.fullName.split(' ').first,
+                      userRole: auth.user?.roleLabel,
                       onLogout: auth.logout,
                     ),
                   ),
@@ -76,7 +78,13 @@ GoRouter buildRouter(AuthController auth) {
               StatefulShellBranch(routes: [GoRoute(path: '/users', builder: (_, _) => const UsersScreen())]),
             ],
           ),
-          // Opens over the bar.
+          // Open over the bar.
+          GoRoute(
+            path: '/swap',
+            builder: (_, state) => SwapScreen(
+              initialCellId: int.tryParse(state.uri.queryParameters['cell'] ?? ''),
+            ),
+          ),
           GoRoute(
             path: '/barcodes',
             builder: (_, state) => BarcodeScreen(

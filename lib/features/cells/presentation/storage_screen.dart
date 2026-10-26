@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/dialogs.dart';
@@ -7,73 +8,105 @@ import '../../../core/widgets/app_header.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../core/widgets/auth_visuals.dart';
 import '../../../core/widgets/screen_header.dart';
+import '../../auth/presentation/auth_controller.dart';
 import '../data/component.dart';
 import 'cell_actions.dart' show LoadErrorView;
 import 'component_actions.dart';
 import 'inventory_controller.dart';
 import 'component_rotable_bar.dart';
 
+enum _Filter { all, free, disabled, anode, cathode }
+
 /// Anodes and cathodes outside the cells: the freed ones, ready to assign, and
 /// the disabled ones (kept for their history). Each is shown as its bar.
-class StorageScreen extends StatelessWidget {
+class StorageScreen extends StatefulWidget {
   const StorageScreen({super.key});
+
+  @override
+  State<StorageScreen> createState() => _StorageScreenState();
+}
+
+class _StorageScreenState extends State<StorageScreen> {
+  _Filter _filter = _Filter.all;
+
+  /// What is typed in the search box, lower-cased.
+  String _query = '';
 
   @override
   Widget build(BuildContext context) {
     final inventory = context.watch<InventoryController>();
+    // Absent in screen tests that mount the storage alone.
+    final auth = Provider.of<AuthController?>(context, listen: false);
 
-    return Scaffold(
-      backgroundColor: AppColors.surface,
-      body: SafeArea(
-        child: Column(
-          children: [
-            ScreenHeader(
-              title: 'Inventario',
-              subtitle: 'Ánodos y cátodos sin asignar',
-              action: HeaderAction(
-                label: 'Nuevo',
-                onPressed: inventory.hasLoaded ? () => showComponentSheet(context, inventory) : null,
-              ),
+    final header = BrandHeader(
+      eyebrow: 'Ánodos y cátodos',
+      title: 'Inventario',
+      onLogout: auth?.logout,
+      action: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            tooltip: 'Intercambiar entre celdas',
+            onPressed: inventory.hasLoaded ? () => context.push('/swap') : null,
+            icon: const Icon(Icons.swap_horiz),
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.white.withValues(alpha: 0.16),
+              foregroundColor: Colors.white,
+              fixedSize: const Size.square(46),
             ),
-            Expanded(child: _body(context, inventory)),
-          ],
-        ),
+          ),
+          const SizedBox(width: 8),
+          HeaderAction(
+            label: 'Nuevo',
+            onPressed: inventory.hasLoaded ? () => showComponentSheet(context, inventory) : null,
+          ),
+        ],
       ),
+      bottom: inventory.hasLoaded
+          ? StatRow(
+              tiles: [
+                StatTile(label: 'Registrados', value: inventory.components.length),
+                StatTile(label: 'Libres', value: inventory.componentsFree, color: AppColors.success),
+                StatTile(
+                  label: 'Deshabilitados',
+                  value: inventory.components.where((c) => !c.isActive).length,
+                  color: AppColors.muted,
+                ),
+              ],
+            )
+          : null,
     );
+
+    return Scaffold(backgroundColor: AppColors.surface, body: _body(context, inventory, header));
   }
 
-  Widget _body(BuildContext context, InventoryController inventory) {
+  Widget _body(BuildContext context, InventoryController inventory, Widget header) {
     if (!inventory.hasLoaded) {
-      if (inventory.loading) return const Center(child: CircularProgressIndicator(color: AppColors.blue));
-      return LoadErrorView(message: inventory.loadError ?? 'No se pudo cargar.', onRetry: inventory.load);
+      return Column(
+        children: [
+          header,
+          Expanded(
+            child: inventory.loading
+                ? const Center(child: CircularProgressIndicator(color: AppColors.blue))
+                : LoadErrorView(message: inventory.loadError ?? 'No se pudo cargar.', onRetry: inventory.load),
+          ),
+        ],
+      );
     }
 
-    final freed = inventory.components.where((c) => c.isFree).toList();
-    final disabled = inventory.components.where((c) => !c.isActive).toList();
+    // In use, a component lives in its cell: the storage has the rest.
+    final stored = inventory.components.where((c) => !c.isInUse).toList();
+    int count(_Filter f) => stored.where((c) => _matches(c, f)).length;
+    final shown = stored
+        .where((c) => _matches(c, _filter) && (_query.isEmpty || c.serialCode.toLowerCase().contains(_query)))
+        .toList();
 
-    List<Widget> section(String title, List<Component> components) => [
-      SliverPadding(
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
-        sliver: SliverToBoxAdapter(child: Text('${title.toUpperCase()} · ${components.length}', style: AppTheme.label)),
-      ),
-      SliverPadding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        // Built lazily: only the bars on screen are painted.
-        sliver: SliverGrid.builder(
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisExtent: 300,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
-          ),
-          itemCount: components.length,
-          itemBuilder: (context, i) => _StoredComponent(
-            key: ValueKey('storage-${components[i].id}'),
-            component: components[i],
-            busy: inventory.isComponentBusy(components[i].id),
-          ),
-        ),
-      ),
+    final chips = [
+      (_Filter.all, 'Todos'),
+      (_Filter.free, 'Libres · ${count(_Filter.free)}'),
+      (_Filter.disabled, 'Deshabilitados · ${count(_Filter.disabled)}'),
+      (_Filter.anode, 'Ánodos · ${count(_Filter.anode)}'),
+      (_Filter.cathode, 'Cátodos · ${count(_Filter.cathode)}'),
     ];
 
     return RefreshIndicator(
@@ -82,6 +115,7 @@ class StorageScreen extends StatelessWidget {
       child: CustomScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         slivers: [
+          SliverToBoxAdapter(child: header),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
             sliver: SliverToBoxAdapter(
@@ -89,32 +123,110 @@ class StorageScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   if (inventory.loadError != null) ...[ErrorBanner(inventory.loadError!), const SizedBox(height: 16)],
-                  StatRow(
-                    tiles: [
-                      StatTile(label: 'Registrados', value: inventory.components.length),
-                      StatTile(label: 'En uso', value: inventory.componentsInUse, color: AppColors.blue),
-                      StatTile(label: 'Libres', value: inventory.componentsFree),
-                    ],
-                  ),
-                  if (freed.isEmpty && disabled.isEmpty) ...[
-                    const SizedBox(height: 16),
-                    const InfoBox(text: 'Todos los componentes están en sus celdas. Registra uno nuevo con "Nuevo".'),
-                  ],
+                  if (stored.isEmpty)
+                    const InfoBox(text: 'Todos los componentes están en sus celdas. Registra uno nuevo con "Nuevo".')
+                  else
+                    SearchField(onChanged: (text) => setState(() => _query = text.trim().toLowerCase())),
                 ],
               ),
             ),
           ),
-          if (freed.isNotEmpty) ...section('Liberados', freed),
-          if (disabled.isNotEmpty) ...section('Deshabilitados', disabled),
+          if (stored.isNotEmpty) ...[
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: 60,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+                  itemCount: chips.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 8),
+                  itemBuilder: (context, i) => _FilterChip(
+                    label: chips[i].$2,
+                    selected: _filter == chips[i].$1,
+                    onTap: () => setState(() => _filter = chips[i].$1),
+                  ),
+                ),
+              ),
+            ),
+            if (shown.isEmpty)
+              const SliverPadding(
+                padding: EdgeInsets.fromLTRB(16, 8, 16, 0),
+                sliver: SliverToBoxAdapter(child: InfoBox(text: 'Ningún componente coincide con el filtro.')),
+              ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              // Built lazily: only the bars on screen are painted.
+              sliver: SliverGrid.builder(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2,
+                  mainAxisExtent: 268,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                ),
+                itemCount: shown.length,
+                itemBuilder: (context, i) => _StoredComponent(
+                  key: ValueKey('storage-${shown[i].id}'),
+                  component: shown[i],
+                  busy: inventory.isComponentBusy(shown[i].id),
+                ),
+              ),
+            ),
+          ],
           const SliverToBoxAdapter(child: SizedBox(height: 24)),
         ],
       ),
     );
   }
+
+  static bool _matches(Component c, _Filter f) => switch (f) {
+    _Filter.all => true,
+    _Filter.free => c.isFree,
+    _Filter.disabled => !c.isActive,
+    _Filter.anode => c.type == ComponentType.anode,
+    _Filter.cathode => c.type == ComponentType.cathode,
+  };
 }
 
-/// One stored component: its bar (turned with the finger), serial, state and,
-/// while active, its actions.
+/// Rounded filter pill: dark when selected.
+class _FilterChip extends StatelessWidget {
+  const _FilterChip({required this.label, required this.selected, required this.onTap});
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: selected,
+      child: Material(
+        color: selected ? AppColors.ink : Colors.white,
+        shape: const StadiumBorder(),
+        child: InkWell(
+          onTap: onTap,
+          customBorder: const StadiumBorder(),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Center(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: selected ? Colors.white : AppColors.ink,
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One stored component: its bar (turned with the finger), state, type,
+/// serial and its actions.
 class _StoredComponent extends StatelessWidget {
   const _StoredComponent({super.key, required this.component, required this.busy});
 
@@ -126,79 +238,127 @@ class _StoredComponent extends StatelessWidget {
     final inventory = context.read<InventoryController>();
     final c = component;
 
-    Widget action(String tooltip, IconData icon, Color color, VoidCallback onPressed) => IconButton(
-      tooltip: tooltip,
-      onPressed: busy ? null : onPressed,
-      icon: Icon(icon, size: 20),
-      color: color,
-      visualDensity: VisualDensity.compact,
-    );
-
     return AppCard(
-      padding: const EdgeInsets.fromLTRB(10, 10, 10, 6),
+      padding: const EdgeInsets.all(10),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Faded when disabled; its actions stay at full strength.
           Expanded(
-            child: Opacity(
-              opacity: c.isActive ? 1 : 0.55,
-              child: Column(
+            child: Container(
+              clipBehavior: Clip.antiAlias,
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(18),
+                gradient: const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0xFFEFF4FC), Color(0xFFDCE6F5)],
+                ),
+              ),
+              child: Stack(
                 children: [
-                  Expanded(
-                    child: RotatableBar(key: ValueKey('storage-bar-${c.id}'), type: c.type, serial: c.serialCode),
+                  // Faded when disabled; its actions stay at full strength.
+                  Positioned.fill(
+                    child: Opacity(
+                      opacity: c.isActive ? 1 : 0.55,
+                      child: RotatableBar(key: ValueKey('storage-bar-${c.id}'), type: c.type, serial: c.serialCode),
+                    ),
                   ),
-                  Text(
-                    '${c.type.label} · ${c.serialCode}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: AppColors.ink),
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    child: c.isActive
+                        ? StatusPill.of('Libre', StatusPill.green)
+                        : StatusPill.of('Deshabilitado', StatusPill.grey),
                   ),
-                  const SizedBox(height: 6),
-                  c.isActive
-                      ? StatusPill.of('Libre', StatusPill.green)
-                      : StatusPill.of('Deshabilitado', StatusPill.grey),
                 ],
               ),
             ),
           ),
-          if (c.isActive)
-            SizedBox(
-              height: 44,
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  action(
-                    'Editar componente',
-                    Icons.edit_outlined,
-                    AppColors.blue,
-                    () => showComponentSheet(context, inventory, component: c),
+          const SizedBox(height: 10),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  c.type.label.toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.8,
+                    color: AppColors.muted,
                   ),
-                  action(
-                    'Asignar a una celda',
-                    Icons.input,
-                    AppColors.teal,
-                    () => showAssignSheet(context, inventory, c),
-                  ),
-                  action(
-                    'Deshabilitar componente',
-                    Icons.delete_outline,
-                    AppColors.error,
-                    () => disableComponentWithChecks(context, c),
-                  ),
-                ],
-              ),
-            )
-          else ...[
-            const SizedBox(height: 8),
-            SmallActionButton(
-              label: 'Reactivar',
-              color: AppColors.teal,
-              onPressed: busy
-                  ? null
-                  : () => runAction(context, () => inventory.reactivateComponent(c), '${c.serialCode} reactivado.'),
+                ),
+                Text(
+                  c.serialCode,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.ink),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: c.isActive
+                      ? [
+                          CircleAction(
+                            tooltip: 'Editar componente',
+                            icon: Icons.edit_outlined,
+                            size: 36,
+                            onPressed: busy ? null : () => showComponentSheet(context, inventory, component: c),
+                          ),
+                          const SizedBox(width: 8),
+                          CircleAction(
+                            tooltip: 'Asignar a una celda',
+                            icon: Icons.swap_horiz,
+                            size: 36,
+                            onPressed: busy ? null : () => showAssignSheet(context, inventory, c),
+                          ),
+                          const SizedBox(width: 8),
+                          CircleAction(
+                            tooltip: 'Deshabilitar componente',
+                            icon: Icons.delete_outline,
+                            color: AppColors.error,
+                            background: AppColors.errorSoft,
+                            size: 36,
+                            onPressed: busy ? null : () => disableComponentWithChecks(context, c),
+                          ),
+                        ]
+                      : [
+                          Expanded(
+                            child: SizedBox(
+                              height: 36,
+                              child: TextButton(
+                                onPressed: busy
+                                    ? null
+                                    : () => runAction(
+                                        context,
+                                        () => inventory.reactivateComponent(c),
+                                        '${c.serialCode} reactivado.',
+                                      ),
+                                style: TextButton.styleFrom(
+                                  backgroundColor: AppColors.blueSoft,
+                                  foregroundColor: AppColors.blue,
+                                  shape: const StadiumBorder(),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                                  textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                                ),
+                                child: const Text('Reactivar', maxLines: 1, overflow: TextOverflow.ellipsis),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          CircleAction(
+                            tooltip: 'Eliminar componente',
+                            icon: Icons.delete_outline,
+                            color: AppColors.error,
+                            background: AppColors.errorSoft,
+                            size: 36,
+                            onPressed: busy ? null : () => _remove(context, inventory),
+                          ),
+                        ],
+                ),
+              ],
             ),
-            action('Eliminar componente', Icons.delete_outline, AppColors.error, () => _remove(context, inventory)),
-          ],
+          ),
         ],
       ),
     );

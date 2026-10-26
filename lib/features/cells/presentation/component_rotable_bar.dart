@@ -22,8 +22,9 @@ class RotatableBarState extends State<RotatableBar> with SingleTickerProviderSta
 
   // Starts turned and tilted like the sketch, so it reads as a solid at once.
   // The tilt stays fixed: the bar only turns one way, around its long side.
+  // Positive: seen slightly from above, so its top end shows.
   double _yaw = 0.6;
-  static const _pitch = -0.3;
+  static const _pitch = 0.45;
   late final AnimationController _spin = AnimationController.unbounded(vsync: this)
     ..addListener(() => setState(() => _yaw = _spin.value));
 
@@ -82,16 +83,18 @@ class PrismPainter extends CustomPainter {
   ];
 
   ({double x, double y, double z}) _rotate(({double x, double y, double z}) v) {
-    // Roll (lean), then pitch (tilt towards the viewer), then yaw (spin).
-    var x = v.x * cos(_roll) - v.y * sin(_roll);
-    var y = v.x * sin(_roll) + v.y * cos(_roll);
-    var z = v.z;
+    // Yaw (spin about the bar's own long axis) first, then the fixed roll (lean)
+    // and pitch (tilt towards the viewer): spun last, the tilt would flip with
+    // the bar and show its bottom instead of its top cap.
+    var x = v.x * cos(yaw) + v.z * sin(yaw);
+    var y = v.y;
+    var z = -v.x * sin(yaw) + v.z * cos(yaw);
+    final x2 = x * cos(_roll) - y * sin(_roll);
+    y = x * sin(_roll) + y * cos(_roll);
+    x = x2;
     final y2 = y * cos(pitch) - z * sin(pitch);
     z = y * sin(pitch) + z * cos(pitch);
     y = y2;
-    final x2 = x * cos(yaw) + z * sin(yaw);
-    z = -x * sin(yaw) + z * cos(yaw);
-    x = x2;
     return (x: x, y: y, z: z);
   }
 
@@ -108,7 +111,8 @@ class PrismPainter extends CustomPainter {
       for (var i = 0; i < 8; i++)
         (x: (i & 1 == 0 ? -_w : _w) / 2, y: (i & 2 == 0 ? -_h : _h) / 2, z: (i & 4 == 0 ? -_d : _d) / 2),
     ];
-    final points = [for (final v in model) project(_rotate(v))];
+    final rotated = [for (final v in model) _rotate(v)];
+    final points = [for (final v in rotated) project(v)];
 
     // Floor shadow, as wide as the bar looks from here.
     final xs = points.map((p) => p.dx);
@@ -128,9 +132,15 @@ class PrismPainter extends CustomPainter {
 
     for (final face in _faces) {
       final n = _rotate(face.normal);
-      if (n.z <= 0) continue; // facing away (the bar is convex: no sorting needed)
+      // Facing away from the camera (the bar is convex: no sorting needed). Tested
+      // against the view ray, not just n.z: with perspective an end face can show
+      // while its normal points slightly away, and skipping it leaves a hole.
+      final p = rotated[face.corners[0]];
+      if (n.x * -p.x + n.y * -p.y + n.z * (_camera - p.z) <= 0) continue;
       final lit = max(0.0, n.x * _light.x + n.y * _light.y + n.z * _light.z);
-      final colour = Color.lerp(Colors.black, base, 0.45 + 0.55 * lit)!;
+      final shaded = Color.lerp(Colors.black, base, 0.45 + 0.55 * lit)!;
+      // The cut ends are machined bright, so the top cap reads against the sides.
+      final colour = face.normal.y != 0 ? Color.lerp(shaded, Colors.white, 0.35)! : shaded;
       final c = [for (final i in face.corners) points[i]];
       final path = Path()
         ..moveTo(c[0].dx, c[0].dy)

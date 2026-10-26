@@ -12,6 +12,7 @@
 .swiftpm/
 migrate_working_dir/
 assets/drafts/
+assets/mockups/
 
 # IntelliJ related
 *.iml

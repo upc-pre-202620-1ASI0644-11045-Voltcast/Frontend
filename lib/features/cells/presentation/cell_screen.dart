@@ -22,17 +22,21 @@ import 'inventory_controller.dart';
 import 'component_rotable_bar.dart';
 import 'sync_banner.dart';
 
-const _tileExtent = 250.0;
+const _tileExtent = 212.0;
 
-/// Every cell from the backend on one vertical production line. A cell with
-/// both components is shown closed; once opened, its anode and cathode can be
-/// dragged onto another open cell to swap them, or tapped to fly into a view
-/// of that bar with the component as the backend has it now.
+/// Every cell from the backend, one horizontal row per section (the letter of
+/// its name: A1, A2… then B1…). A cell with both components is shown closed;
+/// once opened, its anode and cathode can be dragged onto another open cell to
+/// swap them, or tapped to fly into a view of that bar with the component as
+/// the backend has it now.
 class ProductionLineScreen extends StatefulWidget {
-  const ProductionLineScreen({super.key, this.userName, this.onLogout});
+  const ProductionLineScreen({super.key, this.userName, this.userRole, this.onLogout});
 
   /// First name for the greeting; the home tab passes the signed-in user's.
   final String? userName;
+
+  /// "Supervisor", "Ingeniero de Planta": shown above the greeting.
+  final String? userRole;
   final VoidCallback? onLogout;
 
   @override
@@ -43,8 +47,18 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
   final _scroll = ScrollController();
   final _stackKey = GlobalKey();
   final _listKey = GlobalKey();
-  final _headerKey = GlobalKey();
-  final _tileKeys = <int, GlobalKey>{};
+  final _tileKeys = <String, GlobalKey>{};
+
+  /// Section letter of each cell as last laid out. Part of its keys: a cell
+  /// renamed into another section is built anew in that row, not moved there.
+  final _sectionOf = <int, String>{};
+
+  /// One horizontal row per section letter, so a drag can scroll it sideways.
+  final _rowKeys = <String, GlobalKey>{};
+  final _rowPages = <String, PageController>{};
+
+  /// What is typed in the search box, lower-cased.
+  String _query = '';
 
   /// One per bar (`cellId-type`): the zoom starts from and returns to it.
   final _barKeys = <String, GlobalKey>{};
@@ -76,10 +90,15 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
     _zoom.dispose();
     _flight.dispose();
     _scroll.dispose();
+    for (final c in _rowPages.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
-  GlobalKey _barKey(int cellId, ComponentType type) => _barKeys.putIfAbsent('$cellId-${type.name}', GlobalKey.new);
+  GlobalKey _barKey(int cellId, ComponentType type) =>
+      _barKeys.putIfAbsent('${_sectionOf[cellId]}$cellId-${type.name}', GlobalKey.new);
+  GlobalKey _tileKey(int cellId) => _tileKeys.putIfAbsent('${_sectionOf[cellId]}$cellId', GlobalKey.new);
 
   Rect? _rectOf(GlobalKey? key) {
     final box = key?.currentContext?.findRenderObject() as RenderBox?;
@@ -88,7 +107,7 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
     return box.localToGlobal(Offset.zero, ancestor: stack) & box.size;
   }
 
-  Rect? _originOf(int cellId, ComponentType type) => _rectOf(_barKey(cellId, type)) ?? _rectOf(_tileKeys[cellId]);
+  Rect? _originOf(int cellId, ComponentType type) => _rectOf(_barKey(cellId, type)) ?? _rectOf(_tileKey(cellId));
 
   Future<void> _open(Cell cell) async {
     final ok = await confirmDialog(
@@ -101,18 +120,18 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
     if (ok && mounted) setState(() => _opened.add(cell.id));
   }
 
-  Future<void> _enter(int index, Cell cell, ComponentType focus) async {
+  Future<void> _enter(Cell cell, ComponentType focus) async {
     if (_cellId != null || _zoom.isAnimating) return;
 
-    // Travel along the line until the cell is centred, then dive into the bar.
-    if (_scroll.hasClients) {
-      final position = _scroll.position;
-      final header = _headerKey.currentContext?.size?.height ?? 0;
-      final target = (header + index * _tileExtent + _tileExtent / 2 - position.viewportDimension / 2).clamp(
-        position.minScrollExtent,
-        position.maxScrollExtent,
+    // Travel along the line (and its row) until the cell is centred, then dive into the bar.
+    final tile = _tileKey(cell.id).currentContext;
+    if (tile != null) {
+      await Scrollable.ensureVisible(
+        tile,
+        alignment: 0.5,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOutCubic,
       );
-      await _scroll.animateTo(target, duration: const Duration(milliseconds: 350), curve: Curves.easeInOutCubic);
     }
     if (!mounted) return;
 
@@ -133,17 +152,35 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
   }
 
   /// While a component is dragged near the top or bottom of the list, scroll
-  /// it so the drop can reach any of the cells. Fed by a listener around the
-  /// list, not by the dragged tile: that tile is disposed once scrolled away.
+  /// it, and near the sides of a section's row, turn to the next or previous
+  /// cell, so the drop can reach any of the cells. Fed by a listener around the list, not by the dragged tile: that
+  /// tile is disposed once scrolled away.
   void _autoScroll(Offset globalPosition) {
-    final list = _listKey.currentContext?.findRenderObject() as RenderBox?;
-    if (!_dragging || list == null || !_scroll.hasClients) return;
-    const edge = 90.0, step = 24.0;
-    final y = list.globalToLocal(globalPosition).dy;
-    final delta = y < edge ? -step : (y > list.size.height - edge ? step : 0.0);
-    if (delta == 0) return;
-    final position = _scroll.position;
-    _scroll.jumpTo((position.pixels + delta).clamp(position.minScrollExtent, position.maxScrollExtent));
+    if (!_dragging) return;
+    const step = 24.0;
+    void nudge(ScrollController controller, double at, double extent, double edge) {
+      final delta = at < edge ? -step : (at > extent - edge ? step : 0.0);
+      if (delta == 0 || !controller.hasClients) return;
+      final position = controller.position;
+      controller.jumpTo((position.pixels + delta).clamp(position.minScrollExtent, position.maxScrollExtent));
+    }
+
+    RenderBox? boxOf(GlobalKey key) => key.currentContext?.findRenderObject() as RenderBox?;
+    final list = boxOf(_listKey);
+    if (list != null) nudge(_scroll, list.globalToLocal(globalPosition).dy, list.size.height, 90);
+    for (final MapEntry(key: section, value: key) in _rowKeys.entries) {
+      final row = boxOf(key);
+      if (row == null || !row.attached) continue;
+      final at = row.globalToLocal(globalPosition);
+      if (at.dy < 0 || at.dy > row.size.height) continue;
+      final pages = _rowPages[section]!;
+      // One cell per page: wait for a turn to finish before taking the next.
+      // Narrow edges: the anode of a card sits close to the left one.
+      if (!pages.hasClients || pages.position.isScrollingNotifier.value) continue;
+      const turn = Duration(milliseconds: 300);
+      if (at.dx > row.size.width - 32) pages.nextPage(duration: turn, curve: Curves.easeOutCubic);
+      if (at.dx < 32) pages.previousPage(duration: turn, curve: Curves.easeOutCubic);
+    }
   }
 
   /// Once the swap is confirmed, each bar flies over to the other's slot while
@@ -222,51 +259,49 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _exit();
       },
-      child: Scaffold(
-        backgroundColor: AppColors.surface,
-        body: SafeArea(
-          child: Column(
-            children: [
-              ScreenHeader(
-                // The home tab: the line is what the user lands on after signing in.
-                title: 'Celdas',
-                subtitle: [
-                  ?widget.userName,
-                  inventory.hasLoaded ? '${inventory.cells.length} celdas' : 'Línea de producción',
-                ].join(' · '),
-                onBack: selected != null ? _exit : null,
-                action: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    HeaderAction(
-                      label: 'Nueva',
-                      onPressed: inventory.hasLoaded && selected == null
-                          ? () => showCellSheet(context, inventory)
-                          : null,
-                    ),
-                    if (widget.onLogout != null)
-                      IconButton(
-                        tooltip: 'Cerrar sesión',
-                        onPressed: widget.onLogout,
-                        icon: const Icon(Icons.logout, color: AppColors.muted),
-                      ),
-                  ],
-                ),
-              ),
-              Expanded(child: _body(inventory, selected)),
-            ],
-          ),
-        ),
+      child: Scaffold(backgroundColor: AppColors.surface, body: _body(inventory, selected)),
+    );
+  }
+
+  /// Blue greeting with the cell figures; the first thing in the scroll view.
+  Widget _header(InventoryController inventory) {
+    final name = widget.userName;
+    return BrandHeader(
+      eyebrow: [
+        ?widget.userRole,
+        inventory.hasLoaded ? '${inventory.cells.length} celdas' : 'Línea de producción',
+      ].join(' · '),
+      // The home tab: the line is what the user lands on after signing in.
+      title: name == null ? 'Celdas' : 'Hola, $name',
+      onLogout: widget.onLogout,
+      action: HeaderAction(
+        label: 'Nueva',
+        onPressed: inventory.hasLoaded ? () => showCellSheet(context, inventory) : null,
       ),
+      bottom: inventory.hasLoaded
+          ? StatRow(
+              tiles: [
+                StatTile(label: 'Registradas', value: inventory.cells.length),
+                StatTile(label: 'Activas', value: inventory.activeCount, color: AppColors.success),
+                StatTile(label: 'Inactivas', value: inventory.inactiveCount, color: AppColors.muted),
+              ],
+            )
+          : null,
     );
   }
 
   Widget _body(InventoryController inventory, Cell? selected) {
     if (!inventory.hasLoaded) {
-      if (inventory.loading) {
-        return const Center(child: CircularProgressIndicator(color: AppColors.blue));
-      }
-      return LoadErrorView(message: inventory.loadError ?? 'No se pudo cargar.', onRetry: inventory.load);
+      return Column(
+        children: [
+          _header(inventory),
+          Expanded(
+            child: inventory.loading
+                ? const Center(child: CircularProgressIndicator(color: AppColors.blue))
+                : LoadErrorView(message: inventory.loadError ?? 'No se pudo cargar.', onRetry: inventory.load),
+          ),
+        ],
+      );
     }
 
     final cells = inventory.cells;
@@ -363,32 +398,76 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
   }
 
   Widget _line(InventoryController inventory, List<Cell> cells, Map<int, Map<ComponentType, Component>> parts) {
-    final header = Padding(
-      key: _headerKey,
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+    // By code: the cell's name or barcode, or the serial of a bar in it.
+    final shown = _query.isEmpty
+        ? cells
+        : cells.where((cell) {
+            final codes = [
+              cell.name,
+              ?cell.barcodeValue,
+              for (final c in parts[cell.id]?.values ?? const <Component>[]) c.serialCode,
+            ];
+            return codes.any((code) => code.toLowerCase().contains(_query));
+          }).toList();
+    // Cells come sorted (A1, A2… B1…), so each section is one run of the list.
+    final sections = <String, List<Cell>>{};
+    for (final cell in shown) {
+      final letter = cell.name.isEmpty ? '?' : cell.name[0].toUpperCase();
+      _sectionOf[cell.id] = letter;
+      sections.putIfAbsent(letter, () => []).add(cell);
+    }
+
+    final top = Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (inventory.loadError != null) ...[ErrorBanner(inventory.loadError!), const SizedBox(height: 16)],
           const SyncStatusBanner(),
-          StatRow(
-            tiles: [
-              StatTile(label: 'Registradas', value: cells.length),
-              StatTile(label: 'Activas', value: inventory.activeCount, color: AppColors.blue),
-              StatTile(label: 'Inactivas', value: inventory.inactiveCount, color: AppColors.muted),
-            ],
-          ),
-          const SizedBox(height: 14),
           if (cells.isEmpty)
             const InfoBox(text: 'Aún no hay celdas registradas. Crea la primera con "Nueva".')
-          else
-            const Text(
-              'Visualiza las celdas aquí',
-              style: TextStyle(fontSize: 13, height: 1.4, color: AppColors.muted),
-            ),
+          else ...[
+            SearchField(onChanged: (text) => setState(() => _query = text.trim().toLowerCase())),
+            if (shown.isEmpty) ...[
+              const SizedBox(height: 16),
+              const InfoBox(text: 'Ninguna celda coincide con la búsqueda.'),
+            ],
+          ],
         ],
       ),
     );
+
+    Widget tile(Cell cell) {
+      final anode = parts[cell.id]?[ComponentType.anode];
+      final cathode = parts[cell.id]?[ComponentType.cathode];
+      final complete = anode != null && cathode != null;
+      final opened = _opened.contains(cell.id);
+      // Inactive cells are edited and removed too: only a busy one waits.
+      final actionable = !inventory.isCellBusy(cell.id);
+      return RepaintBoundary(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+          child: _CellTile(
+            key: _tileKey(cell.id),
+            cell: cell,
+            anode: anode,
+            cathode: cathode,
+            closed: complete && !opened,
+            busy: [anode, cathode].any((c) => c != null && inventory.isComponentBusy(c.id)),
+            barKey: (type) => _barKey(cell.id, type),
+            onOpen: () => _open(cell),
+            onClose: complete && opened ? () => setState(() => _opened.remove(cell.id)) : null,
+            onTap: (type) => _enter(cell, type),
+            onSwap: _swap,
+            flying: {for (final f in _flights) f.component.id},
+            onDragStarted: () => _dragging = true,
+            onCode: () => context.push('/barcodes?cell=${cell.id}'),
+            onEdit: actionable ? () => showCellSheet(context, inventory, cell: cell) : null,
+            onDisable: actionable ? () => removeCellWithChecks(context, cell) : null,
+          ),
+        ),
+      );
+    }
 
     return Listener(
       onPointerMove: (e) => _autoScroll(e.position),
@@ -397,58 +476,41 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
       child: RefreshIndicator(
         color: AppColors.blue,
         onRefresh: inventory.load,
-        child: Scrollbar(
+        child: CustomScrollView(
+          key: _listKey,
           controller: _scroll,
-          thumbVisibility: true,
-          interactive: true,
-          child: CustomScrollView(
-            key: _listKey,
-            controller: _scroll,
-            physics: const AlwaysScrollableScrollPhysics(),
-            slivers: [
-              SliverToBoxAdapter(child: header),
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverToBoxAdapter(child: _header(inventory)),
+            SliverToBoxAdapter(child: top),
+            for (final MapEntry(key: letter, value: row) in sections.entries) ...[
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-                // Fixed extent: tiles are laid out and culled without measuring
-                // them, so only the cells near the screen exist, even with 150.
-                sliver: SliverFixedExtentList(
-                  itemExtent: _tileExtent,
-                  delegate: SliverChildBuilderDelegate(childCount: cells.length, (context, i) {
-                    final cell = cells[i];
-                    final anode = parts[cell.id]?[ComponentType.anode];
-                    final cathode = parts[cell.id]?[ComponentType.cathode];
-                    final complete = anode != null && cathode != null;
-                    final opened = _opened.contains(cell.id);
-                    // Inactive cells are edited and removed too: only a busy one waits.
-                    final actionable = !inventory.isCellBusy(cell.id);
-                    return RepaintBoundary(
-                      child: Padding(
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _CellTile(
-                          key: _tileKeys.putIfAbsent(cell.id, GlobalKey.new),
-                          cell: cell,
-                          anode: anode,
-                          cathode: cathode,
-                          closed: complete && !opened,
-                          busy: [anode, cathode].any((c) => c != null && inventory.isComponentBusy(c.id)),
-                          barKey: (type) => _barKey(cell.id, type),
-                          onOpen: () => _open(cell),
-                          onClose: complete && opened ? () => setState(() => _opened.remove(cell.id)) : null,
-                          onTap: (type) => _enter(i, cell, type),
-                          onSwap: _swap,
-                          flying: {for (final f in _flights) f.component.id},
-                          onDragStarted: () => _dragging = true,
-                          onCode: () => context.push('/barcodes?cell=${cell.id}'),
-                          onEdit: actionable ? () => showCellSheet(context, inventory, cell: cell) : null,
-                          onDisable: actionable ? () => removeCellWithChecks(context, cell) : null,
-                        ),
-                      ),
-                    );
-                  }),
+                padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
+                sliver: SliverToBoxAdapter(
+                  child: SectionTitle(
+                    'EL $letter',
+                    trailing: row.length == 1 ? '1 celda' : '${row.length} celdas · desliza →',
+                  ),
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  key: _rowKeys.putIfAbsent(letter, GlobalKey.new),
+                  height: _tileExtent + 14,
+                  // One centred cell per page: only the one on screen is built
+                  // (and its neighbour while turning), even with 150.
+                  child: PageView.builder(
+                    controller: _rowPages.putIfAbsent(letter, PageController.new),
+                    itemCount: row.length,
+                    itemBuilder: (context, i) => Center(
+                      child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 520), child: tile(row[i])),
+                    ),
+                  ),
                 ),
               ),
             ],
-          ),
+            const SliverToBoxAdapter(child: SizedBox(height: 24)),
+          ],
         ),
       ),
     );
@@ -492,6 +554,54 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
             },
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// The cell's jar with its anode and cathode, as on the line, for other
+/// screens. [slot] wraps each slot (its bar, or an empty space) so it can be
+/// dragged or take a drop; [size] is the slot's size.
+class CellModelView extends StatelessWidget {
+  const CellModelView({super.key, this.anode, this.cathode, this.slot});
+
+  /// Serials shown in each slot; null leaves it empty (hatched).
+  final String? anode;
+  final String? cathode;
+  final Widget Function(ComponentType type, Size size, Widget bar)? slot;
+
+  /// A bar lifted off its slot, with a shadow: the feedback of a drag.
+  static Widget liftedBar(ComponentType type, String serial, Size size) =>
+      _LiftedBar(type: type, serial: serial, size: size);
+
+  @override
+  Widget build(BuildContext context) {
+    return AspectRatio(
+      aspectRatio: _Model.aspectRatio,
+      child: LayoutBuilder(
+        builder: (context, box) {
+          final size = box.biggest;
+          Widget zone(ComponentType type, Rect fraction, String? serial) {
+            final rect = _placeIn(size, fraction);
+            final bar = serial == null ? const SizedBox.expand() : _Bar(type: type, serial: serial);
+            return Positioned.fromRect(rect: rect, child: slot?.call(type, rect.size, bar) ?? bar);
+          }
+
+          return Stack(
+            children: [
+              Positioned.fill(
+                child: CustomPaint(
+                  painter: _JarBackPainter(hasAnode: anode != null, hasCathode: cathode != null),
+                ),
+              ),
+              zone(ComponentType.anode, _Model.anodeSlot, anode),
+              zone(ComponentType.cathode, _Model.cathodeSlot, cathode),
+              const Positioned.fill(
+                child: IgnorePointer(child: CustomPaint(painter: _JarFrontPainter())),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -553,7 +663,7 @@ class _CellTile extends StatefulWidget {
   final VoidCallback onDragStarted;
   final VoidCallback onCode;
 
-  /// Rename / disable the cell; null when it is inactive or busy.
+  /// Rename / remove the cell; null while it is busy.
   final VoidCallback? onEdit;
   final VoidCallback? onDisable;
 
@@ -595,93 +705,160 @@ class _CellTileState extends State<_CellTile> with SingleTickerProviderStateMixi
   @override
   Widget build(BuildContext context) {
     final cell = widget.cell;
-    String serial(Component? c) => c?.serialCode ?? '—';
-
-    Widget lockButton(String label, IconData icon, VoidCallback onPressed) => TextButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon, size: 18),
-      label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-      style: TextButton.styleFrom(
-        foregroundColor: AppColors.teal,
-        padding: const EdgeInsets.symmetric(horizontal: 4),
-        visualDensity: VisualDensity.compact,
-        textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-      ),
-    );
-
     // A cell is active while it has a cathode and an anode (the backend's rule).
     final active = widget.anode != null && widget.cathode != null;
 
-    // The model on the left, the cell's data and actions beside it.
-    return AppCard(
-      padding: const EdgeInsets.all(12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
+    Widget part(ComponentType type, Component? c) => Row(
+      children: [
+        Container(
+          width: 8,
+          height: 8,
+          decoration: BoxDecoration(color: _barTint(type), shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 8),
+        Text(type.label, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            c?.serialCode ?? '—',
+            textAlign: TextAlign.end,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.ink),
+          ),
+        ),
+      ],
+    );
+
+    Widget lockButton(String label, IconData icon, VoidCallback onPressed) => SizedBox(
+      height: 40,
+      child: TextButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 17),
+        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
+        style: TextButton.styleFrom(
+          backgroundColor: AppColors.blueSoft,
+          foregroundColor: AppColors.blue,
+          shape: const StadiumBorder(),
+          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+        ),
+      ),
+    );
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: AppCard.shadow,
+      ),
+      child: Column(
         children: [
+          // The model on the left, the cell's data beside it.
           Expanded(
-            flex: 5,
-            child: Center(
-              child: AspectRatio(aspectRatio: _Model.aspectRatio, child: _model()),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 14, 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    width: 118,
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(18),
+                      gradient: const LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [Color(0xFFEFF4FC), Color(0xFFDCE6F5)],
+                      ),
+                    ),
+                    child: Center(
+                      child: AspectRatio(aspectRatio: _Model.aspectRatio, child: _model()),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Celda ${cell.name}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.ink),
+                              ),
+                            ),
+                            StatusPill.of(active ? 'Activa' : 'Inactiva', active ? StatusPill.green : StatusPill.grey),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        part(ComponentType.anode, widget.anode),
+                        const SizedBox(height: 6),
+                        part(ComponentType.cathode, widget.cathode),
+                        const SizedBox(height: 10),
+                        InkWell(
+                          onTap: () => widget.onTap(ComponentType.anode),
+                          borderRadius: BorderRadius.circular(6),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    'Ver componentes',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.blue),
+                                  ),
+                                ),
+                                Icon(Icons.chevron_right, size: 18, color: AppColors.blue),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 6,
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
+          const Divider(height: 1, color: Color(0xFFF0F1F4)),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        'Celda ${cell.name}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: AppColors.ink),
-                      ),
-                    ),
-                    if (widget.onEdit != null)
-                      IconButton(
-                        tooltip: 'Editar celda',
-                        onPressed: widget.onEdit,
-                        icon: const Icon(Icons.edit_outlined, size: 18),
-                        color: AppColors.blue,
-                        visualDensity: VisualDensity.compact,
-                      )
-                    else
-                      const SizedBox(width: 8),
-                    StatusPill.of(active ? 'Activa' : 'Inactiva', active ? StatusPill.green : StatusPill.grey),
-                  ],
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: widget.onClose != null
+                        ? lockButton('Cerrar celda', Icons.lock_outline, widget.onClose!)
+                        : widget.closed
+                        ? lockButton('Abrir celda', Icons.lock_open_outlined, widget.onOpen)
+                        : const SizedBox.shrink(),
+                  ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Á: ${serial(widget.anode)} · C: ${serial(widget.cathode)}',
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 13, height: 1.4, fontWeight: FontWeight.w600, color: AppColors.ink),
+                const SizedBox(width: 8),
+                // The barcode screen already generates, shows and downloads it.
+                CircleAction(
+                  key: ValueKey('line-code-${cell.id}'),
+                  tooltip: cell.barcodeValue == null ? 'Generar código de barras' : 'Código ${cell.barcodeValue}',
+                  icon: Icons.qr_code_2,
+                  onPressed: widget.onCode,
                 ),
-                const SizedBox(height: 12),
-                _CodeChip(cellId: cell.id, code: cell.barcodeValue, onTap: widget.onCode),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Flexible(
-                      child: widget.onClose != null
-                          ? lockButton('Cerrar celda', Icons.lock_outline, widget.onClose!)
-                          : widget.closed
-                          ? lockButton('Abrir celda', Icons.lock_open_outlined, widget.onOpen)
-                          : const SizedBox.shrink(),
-                    ),
-                    if (widget.onDisable != null)
-                      IconButton(
-                        tooltip: 'Eliminar celda',
-                        onPressed: widget.onDisable,
-                        icon: const Icon(Icons.delete_outline, size: 18),
-                        color: AppColors.error,
-                        visualDensity: VisualDensity.compact,
-                      ),
-                  ],
+                const SizedBox(width: 8),
+                CircleAction(tooltip: 'Editar celda', icon: Icons.edit_outlined, onPressed: widget.onEdit),
+                const SizedBox(width: 8),
+                CircleAction(
+                  tooltip: 'Eliminar celda',
+                  icon: Icons.delete_outline,
+                  color: AppColors.error,
+                  background: AppColors.errorSoft,
+                  onPressed: widget.onDisable,
                 ),
               ],
             ),
@@ -860,51 +1037,8 @@ class _Lid extends StatelessWidget {
   }
 }
 
-/// Small tag with the cell's barcode (or "Generar código"); opens the
-/// barcode screen, which already generates, shows and downloads it.
-class _CodeChip extends StatelessWidget {
-  const _CodeChip({required this.cellId, required this.code, required this.onTap});
-
-  final int cellId;
-  final String? code;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: code == null ? 'Generar código de barras' : 'Código de barras $code',
-      child: InkWell(
-        key: ValueKey('line-code-$cellId'),
-        borderRadius: BorderRadius.circular(4),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color: const Color(0xFFEEF1F4),
-            borderRadius: BorderRadius.circular(4),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.qr_code_2, size: 16, color: AppColors.ink),
-              const SizedBox(width: 4),
-              Flexible(
-                child: Text(
-                  code ?? 'Generar código de barras',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppColors.ink),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
+/// Dot colour of each kind of bar, as painted: bronze anode, steel cathode.
+Color _barTint(ComponentType type) => type == ComponentType.anode ? const Color(0xFFB08D4A) : const Color(0xFF6E7A86);
 
 /// A metal bar (anode or cathode) with its serial engraved near the top.
 class _Bar extends StatelessWidget {
@@ -1309,119 +1443,238 @@ class _ComponentDetail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final component = focus == ComponentType.anode ? anode : cathode;
-    // Frosted white over the line, so the line still shows faintly behind.
+    final busy = component != null && isBusy(component.id);
+    // Frosted over the line, so the line still shows faintly behind.
     return BackdropFilter(
       filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
       child: ColoredBox(
-        color: Colors.white.withValues(alpha: 0.86),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 12, 20, 0),
-              child: Row(
-                children: [
-                  TextButton.icon(
-                    onPressed: onBack,
-                    icon: const Icon(Icons.zoom_out_map, size: 20),
-                    label: const Text('Volver a la línea'),
-                    style: TextButton.styleFrom(foregroundColor: AppColors.ink),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Celda ${cell.name}',
-                      textAlign: TextAlign.end,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Padding(
-              padding: EdgeInsets.fromLTRB(20, 2, 20, 0),
-              child: Text('Vista del componente', style: TextStyle(fontSize: 13, color: AppColors.muted)),
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 12),
-                child: Column(
+        color: AppColors.surface.withValues(alpha: 0.94),
+        child: SafeArea(
+          bottom: false,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Row(
                   children: [
-                    Text(
-                      focus.label.toUpperCase(),
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 2,
-                        color: AppColors.muted,
-                      ),
+                    CircleAction(
+                      tooltip: 'Volver a la línea',
+                      icon: Icons.chevron_left,
+                      background: Colors.white,
+                      size: 44,
+                      onPressed: onBack,
                     ),
                     Expanded(
-                      child: component == null
-                          ? Center(
-                              child: AspectRatio(
-                                aspectRatio: 0.3,
-                                child: const CustomPaint(painter: _EmptyBarPainter()),
-                              ),
-                            )
-                          : RotatableBar(key: const ValueKey('detail-bar'), type: focus, serial: component.serialCode),
-                    ),
-                    if (component != null)
-                      const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      child: Column(
                         children: [
-                          Icon(Icons.threesixty, size: 16, color: AppColors.muted),
-                          SizedBox(width: 6),
-                          Flexible(
-                            child: Text(
-                              'Desliza el dedo para girarlo',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(fontSize: 12, color: AppColors.muted),
-                            ),
+                          const Text('Celda', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                          Text(
+                            cell.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.ink),
                           ),
                         ],
                       ),
+                    ),
+                    CircleAction(
+                      tooltip: 'Actualizar',
+                      icon: Icons.refresh,
+                      background: Colors.white,
+                      size: 44,
+                      onPressed: loading ? null : onRefresh,
+                    ),
                   ],
                 ),
               ),
-            ),
-            _ComponentPanel(
-              cell: cell,
-              type: focus,
-              component: component,
-              loading: loading,
-              error: error,
-              refreshedAt: refreshedAt,
-              onFocus: onFocus,
-              onRefresh: onRefresh,
-              actions: component == null
-                  ? [
-                      // One way in for an empty slot: pick a free one or register a new one there.
-                      SmallActionButton(
-                        label: 'Asignar componente',
-                        color: AppColors.teal,
-                        onPressed: () => onAssignFree(focus),
+              const SizedBox(height: 14),
+              Center(
+                child: _TypeSwitch(selected: focus, onSelected: onFocus),
+              ),
+              Expanded(
+                child: Stack(
+                  children: [
+                    // Soft blue glow behind the bar.
+                    const Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: RadialGradient(radius: 0.6, colors: [Color(0x332563EB), Color(0x002563EB)]),
+                        ),
                       ),
-                    ]
-                  : [
-                      SmallActionButton(
-                        label: 'Editar',
-                        onPressed: isBusy(component.id) ? null : () => onEdit(component),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                      child: Column(
+                        children: [
+                          Expanded(
+                            child: component == null
+                                ? Center(
+                                    child: AspectRatio(
+                                      aspectRatio: 0.3,
+                                      child: const CustomPaint(painter: _EmptyBarPainter()),
+                                    ),
+                                  )
+                                : RotatableBar(
+                                    key: const ValueKey('detail-bar'),
+                                    type: focus,
+                                    serial: component.serialCode,
+                                  ),
+                          ),
+                          if (component != null)
+                            const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.threesixty, size: 16, color: AppColors.muted),
+                                SizedBox(width: 6),
+                                Flexible(
+                                  child: Text(
+                                    'Desliza para girar',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 12, color: AppColors.muted),
+                                  ),
+                                ),
+                              ],
+                            ),
+                        ],
                       ),
-                      // Always enabled: for a component in use the answer is the
-                      // "está en uso" message (US013 E02).
-                      SmallActionButton(
-                        label: 'Deshabilitar',
-                        color: AppColors.error,
-                        onPressed: isBusy(component.id) ? null : () => onDisable(component),
+                    ),
+                  ],
+                ),
+              ),
+              _ComponentPanel(
+                key: const ValueKey('component-panel'),
+                cell: cell,
+                type: focus,
+                component: component,
+                loading: loading,
+                error: error,
+                refreshedAt: refreshedAt,
+                // A cell far along the line is picked there instead of dragged to.
+                footer: component == null
+                    ? null
+                    : TextButton.icon(
+                        key: const ValueKey('swap-elsewhere'),
+                        onPressed: () => context.push('/swap?cell=${cell.id}'),
+                        icon: const Icon(Icons.swap_horiz, size: 20),
+                        label: const Text('Intercambiar con otra celda'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.blue,
+                          textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                        ),
                       ),
-                    ],
-            ),
-          ],
+                actions: component == null
+                    ? [
+                        // One way in for an empty slot: pick a free one or register a new one there.
+                        _PanelButton(
+                          label: 'Asignar componente',
+                          background: AppColors.blue,
+                          foreground: Colors.white,
+                          onPressed: () => onAssignFree(focus),
+                        ),
+                      ]
+                    : [
+                        _PanelButton(
+                          label: 'Editar',
+                          background: AppColors.blue,
+                          foreground: Colors.white,
+                          onPressed: busy ? null : () => onEdit(component),
+                        ),
+                        // Always enabled: for a component in use the answer is the
+                        // "está en uso" message (US013 E02).
+                        _PanelButton(
+                          label: 'Deshabilitar',
+                          background: AppColors.errorSoft,
+                          foreground: AppColors.error,
+                          onPressed: busy ? null : () => onDisable(component),
+                        ),
+                      ],
+              ),
+            ],
+          ),
         ),
+      ),
+    );
+  }
+}
+
+/// "Ánodo | Cátodo" segmented switch of the component view.
+class _TypeSwitch extends StatelessWidget {
+  const _TypeSwitch({required this.selected, required this.onSelected});
+
+  final ComponentType selected;
+  final ValueChanged<ComponentType> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(color: const Color(0xFFE2E8F0), borderRadius: BorderRadius.circular(22)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (final type in const [ComponentType.anode, ComponentType.cathode])
+            Semantics(
+              button: true,
+              selected: type == selected,
+              child: GestureDetector(
+                key: ValueKey('focus-${type.name}'),
+                onTap: () => onSelected(type),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 200),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 9),
+                  decoration: BoxDecoration(
+                    color: type == selected ? Colors.white : Colors.transparent,
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: type == selected ? AppCard.shadow : null,
+                  ),
+                  child: Text(
+                    type.label,
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: type == selected ? AppColors.ink : AppColors.muted,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Wide rounded button of the component sheet ("Editar", "Deshabilitar").
+class _PanelButton extends StatelessWidget {
+  const _PanelButton({
+    required this.label,
+    required this.background,
+    required this.foreground,
+    required this.onPressed,
+  });
+
+  final String label;
+  final Color background;
+  final Color foreground;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 50,
+      child: FilledButton(
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          backgroundColor: background,
+          foregroundColor: foreground,
+          disabledBackgroundColor: AppColors.disabledBg,
+          disabledForegroundColor: AppColors.disabledFg,
+          shape: const StadiumBorder(),
+          textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+        ),
+        child: Text(label),
       ),
     );
   }
@@ -1441,17 +1694,18 @@ class _EmptyBarPainter extends CustomPainter {
   bool shouldRepaint(_EmptyBarPainter old) => false;
 }
 
+/// White sheet at the bottom of the component view with its data and actions.
 class _ComponentPanel extends StatelessWidget {
   const _ComponentPanel({
+    super.key,
     required this.cell,
     required this.type,
     required this.component,
     required this.loading,
     required this.error,
     required this.refreshedAt,
-    required this.onFocus,
-    required this.onRefresh,
     required this.actions,
+    this.footer,
   });
 
   final Cell cell;
@@ -1460,66 +1714,86 @@ class _ComponentPanel extends StatelessWidget {
   final bool loading;
   final String? error;
   final DateTime? refreshedAt;
-  final ValueChanged<ComponentType> onFocus;
-  final VoidCallback onRefresh;
   final List<Widget> actions;
+
+  /// Under the actions: the way to the swap screen.
+  final Widget? footer;
 
   static String _time(DateTime t) => [t.hour, t.minute, t.second].map((n) => n.toString().padLeft(2, '0')).join(':');
 
   @override
   Widget build(BuildContext context) {
     final c = component;
-    Widget row(String label, String value) => Padding(
-      padding: const EdgeInsets.only(top: 8),
-      child: Row(
+    final state = c == null ? null : (!c.isActive ? 'Inactivo' : (c.isInUse ? 'En uso' : 'Libre'));
+
+    Widget info(String label, String value, {Color color = AppColors.ink}) => Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+      decoration: BoxDecoration(color: AppColors.field, borderRadius: BorderRadius.circular(16)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Text(label, style: const TextStyle(fontSize: 14, color: AppColors.muted)),
-          ),
-          const SizedBox(width: 12),
-          Flexible(
-            child: Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppColors.ink),
-            ),
+          Text(label, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: color),
           ),
         ],
       ),
     );
 
+    Widget pair(Widget a, Widget b) => Row(
+      children: [
+        Expanded(child: a),
+        const SizedBox(width: 10),
+        Expanded(child: b),
+      ],
+    );
+
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
+      padding: EdgeInsets.fromLTRB(20, 10, 20, 16 + MediaQuery.paddingOf(context).bottom),
+      decoration: const BoxDecoration(
         color: Colors.white,
-        borderRadius: AppRadius.large,
-        border: Border.all(color: AppColors.border),
-        boxShadow: const [BoxShadow(color: Color(0x1F000000), blurRadius: 24, offset: Offset(0, 8))],
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        boxShadow: [BoxShadow(color: Color(0x1A0F172A), blurRadius: 24, offset: Offset(0, -6))],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(color: AppColors.border, borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          const SizedBox(height: 14),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Expanded(
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    for (final t in const [ComponentType.anode, ComponentType.cathode])
-                      ChoiceChip(label: Text(t.label), selected: t == type, onSelected: (_) => onFocus(t)),
+                    Text(type.label, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
+                    Text(
+                      c?.serialCode ?? 'Sin asignar',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: AppColors.ink),
+                    ),
                   ],
                 ),
               ),
-              IconButton(
-                tooltip: 'Actualizar',
-                onPressed: loading ? null : onRefresh,
-                icon: const Icon(Icons.refresh),
-                color: AppColors.blue,
-              ),
+              if (state != null)
+                StatusPill.of(state, switch (state) {
+                  'En uso' => StatusPill.blue,
+                  'Libre' => StatusPill.green,
+                  _ => StatusPill.grey,
+                }),
             ],
           ),
           SizedBox(height: 3, child: loading ? const LinearProgressIndicator(color: AppColors.orange) : null),
@@ -1530,19 +1804,29 @@ class _ComponentPanel extends StatelessWidget {
               style: const TextStyle(fontSize: 15, color: AppColors.muted),
             )
           else ...[
-            Text(
-              '${c.type.label} · ${c.serialCode}',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink),
+            pair(info('ID', '#${c.id}'), info('Celda', cell.name)),
+            const SizedBox(height: 10),
+            pair(
+              info('Estado', state!),
+              info(
+                'Código',
+                cell.barcodeValue ?? 'Pendiente',
+                color: cell.hasBarcode ? AppColors.ink : AppColors.amber,
+              ),
             ),
-            row('ID', '#${c.id}'),
-            row('Estado', !c.isActive ? 'Inactivo' : (c.isInUse ? 'En uso' : 'Libre')),
-            row('Celda', 'Celda ${cell.name}'),
-            row('Código de la celda', cell.barcodeValue ?? 'Pendiente'),
           ],
           if (actions.isNotEmpty) ...[
-            const SizedBox(height: 14),
-            Wrap(spacing: 8, runSpacing: 8, alignment: WrapAlignment.end, children: actions),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                for (var i = 0; i < actions.length; i++) ...[
+                  if (i > 0) const SizedBox(width: 10),
+                  Expanded(child: actions[i]),
+                ],
+              ],
+            ),
           ],
+          if (footer != null) ...[const SizedBox(height: 4), footer!],
           if (error != null) ...[
             const SizedBox(height: 10),
             Text(error!, style: const TextStyle(fontSize: 13, color: AppColors.error)),
@@ -1551,7 +1835,8 @@ class _ComponentPanel extends StatelessWidget {
             const SizedBox(height: 10),
             Text(
               'Actualizado a las ${_time(refreshedAt!)}',
-              style: const TextStyle(fontSize: 12, color: AppColors.hint),
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12, color: AppColors.muted),
             ),
           ],
         ],
