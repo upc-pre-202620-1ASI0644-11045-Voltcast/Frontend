@@ -138,13 +138,7 @@ class BrandHeader extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Container(
-                    width: 34,
-                    height: 34,
-                    padding: const EdgeInsets.all(5),
-                    decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.16), shape: BoxShape.circle),
-                    child: Image.asset('assets/logo/logo.png'),
-                  ),
+                  Image.asset('assets/logo/logo-circular.png', width: 34, height: 34),
                   const SizedBox(width: 10),
                   const Text(
                     'Voltcast',

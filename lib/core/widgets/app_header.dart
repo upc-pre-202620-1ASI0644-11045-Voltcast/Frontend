@@ -27,7 +27,7 @@ class AppHeader extends StatelessWidget {
             )
           else
             const SizedBox(width: 8),
-          Image.asset('assets/logo/logo.png', width: 36, height: 36),
+          Image.asset('assets/logo/logo-circular.png', width: 36, height: 36),
           const SizedBox(width: 12),
           const Text(
             'Voltcast',
