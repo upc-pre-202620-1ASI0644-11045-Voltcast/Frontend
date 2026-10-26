@@ -109,16 +109,7 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
 
   Rect? _originOf(int cellId, ComponentType type) => _rectOf(_barKey(cellId, type)) ?? _rectOf(_tileKey(cellId));
 
-  Future<void> _open(Cell cell) async {
-    final ok = await confirmDialog(
-      context,
-      title: '¿Desea abrir la celda ${cell.name}?',
-      message: 'Podrás intercambiar su ánodo y su cátodo.',
-      action: 'Abrir',
-      actionColor: AppColors.teal,
-    );
-    if (ok && mounted) setState(() => _opened.add(cell.id));
-  }
+  void _open(Cell cell) => setState(() => _opened.add(cell.id));
 
   Future<void> _enter(Cell cell, ComponentType focus) async {
     if (_cellId != null || _zoom.isAnimating) return;

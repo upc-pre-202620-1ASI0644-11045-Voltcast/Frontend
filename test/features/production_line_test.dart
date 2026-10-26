@@ -89,13 +89,8 @@ Future<void> _openA1A2(WidgetTester tester) async {
   await _turnRow(tester, -1);
 }
 
-/// Opens a closed (complete) cell through its lid and the confirmation.
-Future<void> _openCell(WidgetTester tester, int id) async {
-  await _tapKey(tester, 'line-lid-$id');
-  expect(find.textContaining('¿Desea abrir la celda'), findsOneWidget);
-  await tester.tap(find.text('Abrir'));
-  await tester.pumpAndSettle();
-}
+/// Opens a closed (complete) cell through its lid.
+Future<void> _openCell(WidgetTester tester, int id) => _tapKey(tester, 'line-lid-$id');
 
 /// The component view is open.
 final _inView = find.byKey(const ValueKey('component-panel'));
@@ -167,17 +162,11 @@ void main() {
     expect(find.text('Ninguna celda coincide con la búsqueda.'), findsOneWidget);
   });
 
-  testWidgets('a cell with both components starts closed and only opens after confirming', (tester) async {
+  testWidgets('a cell with both components starts closed and opens with a tap on its lid', (tester) async {
     await _pump(tester);
 
-    // A1 has an anode and a cathode: the lid covers them, so a tap asks first.
+    // A1 has an anode and a cathode: the lid covers them until it is tapped.
     expect(find.byKey(const ValueKey('line-lid-1')), findsOneWidget);
-    await _tapKey(tester, 'line-lid-1');
-    expect(find.text('¿Desea abrir la celda A1?'), findsOneWidget);
-    await tester.tap(find.text('Cancelar'));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('line-lid-1')), findsOneWidget);
-
     await _openCell(tester, 1);
     expect(find.byKey(const ValueKey('line-lid-1')), findsNothing);
 
@@ -394,9 +383,6 @@ void main() {
     await _pump(tester);
 
     await tester.tap(find.text('Abrir celda').first);
-    await tester.pumpAndSettle();
-    expect(find.text('¿Desea abrir la celda A1?'), findsOneWidget);
-    await tester.tap(find.text('Abrir'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('line-lid-1')), findsNothing);
