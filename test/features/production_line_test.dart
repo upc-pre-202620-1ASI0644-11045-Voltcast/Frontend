@@ -311,72 +311,16 @@ void main() {
     expect(_inPanel('ANO-001'), findsOneWidget);
   });
 
-  testWidgets('dragging a cathode onto another open cell\'s cathode swaps them after confirming', (tester) async {
+  testWidgets('a bar cannot be dragged onto another cell: swaps go through the swap screen', (tester) async {
     final backend = await _pump(tester, height: 1400);
     await _openA1A2(tester);
 
-    // A2 is the next page: held at the edge, the row turns to it.
+    expect(find.byWidgetPredicate((w) => w is Draggable), findsNothing);
     await _drag(tester, from: 'line-cathode-1', to: 'line-cathode-2');
-    expect(find.text('¿Intercambiar componentes?'), findsOneWidget);
-    await tester.tap(find.text('Intercambiar'));
-    await tester.pumpAndSettle();
 
-    expect(backend.component(1)['cell_id'], 2);
-    expect(backend.component(3)['cell_id'], 1);
-    expect(find.text('CAT-001 y CAT-014 intercambiados.'), findsOneWidget);
-    expect(_inView, findsNothing); // a drag does not enter the cell
-    expect(find.byKey(const ValueKey('line-lid-1')), findsNothing); // both stay open after a swap
-  });
-
-  testWidgets('a swap pulls the bar out, then both bars fly to each other\'s slot', (tester) async {
-    // B3 gets a cathode only, so it stays open and its bar is on screen with A1's.
-    final backend = FakeInventoryBackend();
-    backend.components.add({
-      'id': 30,
-      'type': 'CATHODE',
-      'serial_code': 'CAT-300',
-      'is_active': true,
-      'is_visible': true,
-      'cell_id': 3,
-    });
-    await _pump(tester, backend: backend, height: 1400);
-    await _openCell(tester, 1);
-    Finder serialIn(String slot, String serial) =>
-        find.descendant(of: find.byKey(ValueKey(slot)), matching: find.text(serial));
-    expect(serialIn('line-cathode-1', 'CAT-001'), findsOneWidget);
-
-    final gesture = await tester.startGesture(tester.getCenter(find.byKey(const ValueKey('line-cathode-1'))));
-    await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
-    await tester.pump(const Duration(milliseconds: 300));
-    // Out of its slot and in the hand.
-    expect(serialIn('line-cathode-1', 'CAT-001'), findsNothing);
-    expect(find.text('CAT-001'), findsNWidgets(2)); // the one in the hand + the card's label
-
-    await gesture.moveTo(tester.getCenter(find.byKey(const ValueKey('line-cathode-3'))));
-    await tester.pump();
-    await gesture.up();
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Intercambiar'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    expect(find.byKey(const ValueKey('flying-1')), findsOneWidget);
-    expect(find.byKey(const ValueKey('flying-30')), findsOneWidget);
-
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('flying-1')), findsNothing);
-    expect(serialIn('line-cathode-3', 'CAT-001'), findsOneWidget);
-    expect(serialIn('line-cathode-1', 'CAT-300'), findsOneWidget);
-  });
-
-  testWidgets('dropping on an empty slot of the same type explains why it cannot swap', (tester) async {
-    final backend = await _pump(tester, height: 1400);
-    await _openCell(tester, 1);
-
-    await _drag(tester, from: 'line-cathode-1', to: 'line-cathode-3'); // B3 has no cathode
-
-    expect(find.text('El intercambio no se puede realizar porque no hay un componente disponible.'), findsOneWidget);
     expect(find.text('¿Intercambiar componentes?'), findsNothing);
     expect(backend.swapRequests, 0);
+    expect(backend.component(1)['cell_id'], 1);
   });
 
   testWidgets('the "Abrir celda" button opens a closed cell like its lid', (tester) async {
@@ -387,51 +331,6 @@ void main() {
 
     expect(find.byKey(const ValueKey('line-lid-1')), findsNothing);
     expect(find.text('Cerrar celda'), findsOneWidget);
-  });
-
-  testWidgets('a closed cell does not take a drop', (tester) async {
-    final backend = await _pump(tester, height: 1400);
-    await _openCell(tester, 1);
-
-    await _drag(tester, from: 'line-cathode-1', to: 'line-lid-2');
-
-    expect(find.text('¿Intercambiar componentes?'), findsNothing);
-    expect(backend.swapRequests, 0);
-  });
-
-  testWidgets('a component cannot be dropped on one of the other type', (tester) async {
-    final backend = await _pump(tester, height: 1400);
-    await _openA1A2(tester);
-
-    await _drag(tester, from: 'line-cathode-1', to: 'line-anode-2');
-
-    expect(find.text('¿Intercambiar componentes?'), findsNothing);
-    expect(backend.swapRequests, 0);
-  });
-
-  testWidgets('holding a bar at the right edge turns the section to reach a distant cell', (tester) async {
-    final backend = FakeInventoryBackend();
-    backend.cells.addAll([
-      for (var i = 5; i <= 12; i++) {'id': i, 'name': 'A$i', 'barcode_value': null, 'is_visible': true},
-    ]);
-    backend.components.add({
-      'id': 100,
-      'type': 'CATHODE',
-      'serial_code': 'CAT-900',
-      'is_active': true,
-      'is_visible': true,
-      'cell_id': 12,
-    });
-    await _pump(tester, backend: backend);
-    await _openCell(tester, 1);
-
-    // Nine cells on: the cell the drag started from is disposed on the way.
-    await _drag(tester, from: 'line-cathode-1', to: 'line-cathode-12');
-
-    await tester.tap(find.text('Intercambiar'));
-    await tester.pumpAndSettle();
-    expect(backend.component(1)['cell_id'], 12);
-    expect(backend.component(100)['cell_id'], 1);
   });
 
   group('replaces the cells and components screens', () {
@@ -505,9 +404,9 @@ void main() {
   });
 }
 
-/// Long-presses the zone [from] and drops it on the zone [to]. A zone on a
-/// later page of the same row is reached by holding the bar at the right edge,
-/// which turns the row one cell at a time.
+/// Long-presses the zone [from] and moves to the zone [to], as a drag would. A
+/// zone on a later page of the same row is reached by holding at the right
+/// edge until the row turns to it.
 Future<void> _drag(WidgetTester tester, {required String from, required String to}) async {
   final start = tester.getCenter(find.byKey(ValueKey(from)));
   final gesture = await tester.startGesture(start);

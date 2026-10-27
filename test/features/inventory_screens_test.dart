@@ -10,7 +10,6 @@ import 'package:actualvoltcast/features/cells/presentation/cell_screen.dart';
 import 'package:actualvoltcast/features/cells/presentation/storage_screen.dart';
 import 'package:actualvoltcast/features/cells/presentation/swap_screen.dart';
 import 'package:barcode_widget/barcode_widget.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -105,38 +104,10 @@ Future<void> _tapVisible(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
 }
 
-/// Long-press the zone [from] and drop it on the zone [to]. A zone on a later
-/// page of the same row is reached by holding the bar at the right edge,
-/// which turns the row one cell at a time.
-Future<void> _dragKey(WidgetTester tester, {required String from, required String to}) async {
-  final start = tester.getCenter(find.byKey(ValueKey(from)));
-  final gesture = await tester.startGesture(start);
-  await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
-  final target = find.byKey(ValueKey(to));
-  final width = tester.view.physicalSize.width / tester.view.devicePixelRatio;
-  for (var i = 0; i < 200 && (target.evaluate().isEmpty || tester.getCenter(target).dx > width); i++) {
-    await gesture.moveTo(Offset(width - 4 - (i % 2), start.dy));
-    await tester.pump(const Duration(milliseconds: 100));
-  }
-  await tester.pump(const Duration(milliseconds: 400)); // the last turn settles
-  await gesture.moveTo(tester.getCenter(target));
-  await tester.pump();
-  await gesture.up();
-  await tester.pumpAndSettle();
-}
-
 /// Turns section A's row (one cell per page) forwards (1) or back (-1).
 Future<void> _turnRow(WidgetTester tester, int pages) async {
   await tester.drag(find.byType(PageView).first, Offset(-pages * 260.0, 0));
   await tester.pumpAndSettle();
-}
-
-/// Opens A1 and A2 and comes back to A1, the second one a page away.
-Future<void> _openA1A2(WidgetTester tester) async {
-  await _openCell(tester, 1);
-  await _turnRow(tester, 1);
-  await _openCell(tester, 2);
-  await _turnRow(tester, -1);
 }
 
 Future<void> _tapKey(WidgetTester tester, String key) async {
@@ -670,24 +641,20 @@ void main() {
       expect(find.text('Elegir celda'), findsNWidgets(2));
     });
 
-    testWidgets('cancelling the swap confirmation leaves the components where they are', (tester) async {
-      final h = await _pump(tester);
-      await _openA1A2(tester);
-
-      await _dragKey(tester, from: 'line-cathode-1', to: 'line-cathode-2');
-      await _tapText(tester, 'Cancelar');
-
-      expect(h.backend.component(1)['cell_id'], 1);
-      expect(h.backend.swapRequests, 0);
-    });
-
     testWidgets('US014 E02: without a connection the swap is done locally and queued', (tester) async {
       final h = await _pump(tester);
-      await _openA1A2(tester);
 
       h.backend.offline = true; // the connection drops after the screen was loaded
-      await _dragKey(tester, from: 'line-cathode-1', to: 'line-cathode-2');
-      await _tapText(tester, 'Intercambiar');
+      await _tapVisible(tester, find.byKey(const ValueKey('swap-between-cells')));
+      for (final (side, cell) in [(0, 1), (1, 2)]) {
+        await tester.tap(find.byKey(ValueKey('swap-pick-$side')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(ValueKey('pick-$cell')));
+        await tester.pumpAndSettle();
+      }
+      await _tapKey(tester, 'swap-type-cathode');
+      await _tapText(tester, 'Intercambiar cátodos');
+      await _tapText(tester, 'Guardar cambios');
 
       // Message from the criterion, and the change is already visible.
       expect(find.textContaining('Sin conexión'), findsOneWidget);
@@ -695,8 +662,12 @@ void main() {
         find.textContaining('se sincronizará con el servidor cuando se recupere la conexión a internet'),
         findsOneWidget,
       );
-      expect(find.textContaining('1 intercambio pendiente de sincronizar'), findsOneWidget);
       expect(h.backend.component(1)['cell_id'], 1); // the server was not reached
+      await tester.tap(find.byTooltip('Volver'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('1 intercambio pendiente de sincronizar'), findsOneWidget);
+      await _turnRow(tester, 1);
+      await _openCell(tester, 2);
       // A2 shows the moved cathode.
       expect(
         find.descendant(of: find.byKey(const ValueKey('line-cathode-2')), matching: find.text('CAT-001')),

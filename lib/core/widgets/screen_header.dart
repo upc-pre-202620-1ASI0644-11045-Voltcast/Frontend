@@ -90,12 +90,23 @@ class HeaderAction extends StatelessWidget {
 /// action, and [bottom] (the stats card) hanging over its lower edge.
 /// Draws under the status bar, so it is placed outside any SafeArea.
 class BrandHeader extends StatelessWidget {
-  const BrandHeader({super.key, required this.eyebrow, required this.title, this.action, this.onLogout, this.bottom});
+  const BrandHeader({
+    super.key,
+    required this.eyebrow,
+    required this.title,
+    this.action,
+    this.onLogout,
+    this.onBack,
+    this.bottom,
+  });
 
   final String eyebrow;
   final String title;
   final Widget? action;
   final VoidCallback? onLogout;
+
+  /// Replaces the logo with a back button, for screens opened over the tabs.
+  final VoidCallback? onBack;
   final Widget? bottom;
 
   static const _overlap = 44.0;
@@ -138,7 +149,19 @@ class BrandHeader extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  Image.asset('assets/logo/logo-circular.png', width: 34, height: 34),
+                  if (onBack != null)
+                    IconButton(
+                      tooltip: 'Volver',
+                      onPressed: onBack,
+                      icon: const Icon(Icons.chevron_left, size: 24),
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.white.withValues(alpha: 0.16),
+                        foregroundColor: Colors.white,
+                        fixedSize: const Size.square(44),
+                      ),
+                    )
+                  else
+                    Image.asset('assets/logo/logo-circular.png', width: 34, height: 34),
                   const SizedBox(width: 10),
                   const Text(
                     'Voltcast',
@@ -174,7 +197,7 @@ class BrandHeader extends StatelessWidget {
                         const SizedBox(height: 2),
                         Text(
                           title,
-                          maxLines: 1,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 28,

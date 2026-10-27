@@ -3,8 +3,9 @@ import 'package:provider/provider.dart';
 
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/app_header.dart';
+import '../../../core/widgets/app_header.dart' show AppCard;
 import '../../../core/widgets/app_widgets.dart';
+import '../../../core/widgets/screen_header.dart';
 import '../data/cell.dart';
 import '../data/component.dart';
 import 'cell_screen.dart' show CellModelView;
@@ -14,8 +15,8 @@ import 'inventory_controller.dart';
 enum _Unsaved { save, discard }
 
 /// Swaps components between two cells picked from the whole list, so a swap
-/// between A1 and A150 needs no dragging past 149 cards. Drops only stage the
-/// swap; nothing reaches the backend until "Guardar cambios".
+/// between A1 and A150 needs no scrolling past 149 cards. "Intercambiar" only
+/// stages the swap; nothing reaches the backend until "Guardar cambios".
 class SwapScreen extends StatefulWidget {
   const SwapScreen({super.key, this.initialCellId});
 
@@ -34,6 +35,9 @@ class _SwapScreenState extends State<SwapScreen> {
   final _swapped = <ComponentType>{};
   bool _saving = false;
 
+  /// The type the toggle and the "Intercambiar" button work on.
+  ComponentType _type = ComponentType.anode;
+
   bool get _dirty => _swapped.isNotEmpty;
 
   /// The component of [type] shown on [side]: the other cell's while staged as swapped.
@@ -43,25 +47,18 @@ class _SwapScreenState extends State<SwapScreen> {
     return cell == null ? null : inventory.occupantOf(cell, type);
   }
 
-  void _drop(InventoryController inventory, ({ComponentType type, int side}) dragged, ComponentType target) {
-    final messenger = ScaffoldMessenger.of(context)..hideCurrentSnackBar();
-    if (dragged.type != target) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('Solo puedes intercambiar componentes del mismo tipo: ánodo con ánodo y cátodo con cátodo.'),
-        ),
-      );
-      return;
-    }
+  /// Stages (or, when already staged, undoes) the swap of [type] between the two cells.
+  void _stage(InventoryController inventory, ComponentType type) {
     // The backend swaps two installed components: both cells need one of that type.
-    if (_shown(inventory, 1 - dragged.side, target) == null) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('El intercambio no se puede realizar porque no hay un componente disponible.')),
-      );
+    if (_shown(inventory, 0, type) == null || _shown(inventory, 1, type) == null) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          const SnackBar(content: Text('El intercambio no se puede realizar porque no hay un componente disponible.')),
+        );
       return;
     }
-    // Dragging it back undoes the staged swap.
-    setState(() => _swapped.contains(target) ? _swapped.remove(target) : _swapped.add(target));
+    setState(() => _swapped.contains(type) ? _swapped.remove(type) : _swapped.add(type));
   }
 
   /// Sends the staged swaps one by one. Offline, the controller applies and
@@ -157,77 +154,162 @@ class _SwapScreenState extends State<SwapScreen> {
       },
       child: Scaffold(
         backgroundColor: AppColors.surface,
-        body: SafeArea(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-                child: Row(
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            BrandHeader(
+              eyebrow: 'Celdas · Componentes',
+              title: 'Intercambiar componentes',
+              onBack: _saving ? null : _leave,
+            ),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(16, 20, 16, 24 + MediaQuery.paddingOf(context).bottom),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    CircleAction(
-                      tooltip: 'Volver',
-                      icon: Icons.chevron_left,
-                      background: Colors.white,
-                      size: 44,
-                      onPressed: _saving ? null : _leave,
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(child: _pickerFor(inventory, 0, 'Primera celda')),
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(8, 0, 8, 16),
+                          child: Icon(Icons.swap_horiz, color: AppColors.muted),
+                        ),
+                        Expanded(child: _pickerFor(inventory, 1, 'Segunda celda')),
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    const Expanded(
-                      child: Text(
-                        'Intercambiar componentes',
-                        style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.ink),
-                      ),
+                    const SizedBox(height: 20),
+                    _typeToggle(),
+                    const SizedBox(height: 20),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: _side(inventory, 0)),
+                        const SizedBox(width: 12),
+                        Expanded(child: _side(inventory, 1)),
+                      ],
                     ),
+                    const SizedBox(height: 18),
+                    _status(),
+                    const SizedBox(height: 10),
+                    _swapButton(inventory),
+                    const SizedBox(height: 12),
+                    _saveButton(),
                   ],
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(16, 10, 16, 0),
-                child: Text(
-                  'Elige dos celdas. Mantén pulsado un componente y suéltalo sobre el del mismo tipo en la otra celda.',
-                  style: TextStyle(fontSize: 13, height: 1.4, color: AppColors.muted),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 18, 16, 0),
-                child: Row(
-                  children: [
-                    Expanded(child: _pickerFor(inventory, 0)),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 8),
-                      child: Icon(Icons.swap_horiz, color: AppColors.muted),
-                    ),
-                    Expanded(child: _pickerFor(inventory, 1)),
-                  ],
-                ),
-              ),
-              // Right under the pickers; scrolls on short screens.
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(12, 20, 12, 16),
-                  child: Row(
-                    children: [
-                      Expanded(child: _side(inventory, 0)),
-                      SizedBox(
-                        width: 96,
-                        // Only once something was dropped: until then there is nothing to save.
-                        child: _dirty || _saving ? Center(child: _saveButton()) : null,
-                      ),
-                      Expanded(child: _side(inventory, 1)),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _pickerFor(InventoryController inventory, int side) {
+  Widget _typeToggle() {
+    Widget option(ComponentType type) {
+      final selected = _type == type;
+      return Expanded(
+        child: GestureDetector(
+          key: ValueKey('swap-type-${type.name}'),
+          behavior: HitTestBehavior.opaque,
+          onTap: () => setState(() => _type = type),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            height: 44,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: selected ? Colors.white : Colors.transparent,
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: selected ? AppCard.shadow : null,
+            ),
+            child: Text(
+              type.label,
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+                color: selected ? AppColors.blue : AppColors.muted,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(color: AppColors.field, borderRadius: BorderRadius.circular(26)),
+      child: Row(children: [option(ComponentType.anode), option(ComponentType.cathode)]),
+    );
+  }
+
+  Widget _status() {
+    final n = _swapped.length;
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            n == 0 ? 'Sin cambios pendientes' : '$n ${n == 1 ? 'intercambio pendiente' : 'intercambios pendientes'}',
+            style: const TextStyle(fontSize: 13, color: AppColors.muted),
+          ),
+        ),
+        IconButton(
+          key: const ValueKey('swap-undo'),
+          tooltip: 'Deshacer cambios',
+          onPressed: _dirty && !_saving ? () => setState(_swapped.clear) : null,
+          icon: const Icon(Icons.restore, size: 20),
+          color: AppColors.ink,
+        ),
+      ],
+    );
+  }
+
+  Widget _swapButton(InventoryController inventory) {
+    final ready = inventory.cellById(_cells[0]) != null && inventory.cellById(_cells[1]) != null && !_saving;
+    bool lit(Set<WidgetState> states) => states.contains(WidgetState.hovered) || states.contains(WidgetState.pressed);
+    return SizedBox(
+      height: 52,
+      child: OutlinedButton.icon(
+        key: const ValueKey('swap-stage'),
+        onPressed: ready ? () => _stage(inventory, _type) : null,
+        icon: const Icon(Icons.swap_horiz, size: 20),
+        label: Text('Intercambiar ${_type.label.toLowerCase()}s'),
+        style: ButtonStyle(
+          shape: const WidgetStatePropertyAll(StadiumBorder()),
+          textStyle: const WidgetStatePropertyAll(TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+          // Lime while hovered or pressed, outlined blue otherwise.
+          backgroundColor: WidgetStateProperty.resolveWith((s) => lit(s) ? AppColors.lime : Colors.transparent),
+          foregroundColor: WidgetStateProperty.resolveWith(
+            (s) => s.contains(WidgetState.disabled) ? AppColors.disabledFg : (lit(s) ? AppColors.ink : AppColors.blue),
+          ),
+          side: WidgetStateProperty.resolveWith(
+            (s) => BorderSide(
+              color: s.contains(WidgetState.disabled)
+                  ? AppColors.border
+                  : (lit(s) ? AppColors.lime : AppColors.blue.withValues(alpha: 0.35)),
+            ),
+          ),
+          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+        ),
+      ),
+    );
+  }
+
+  Widget _pickerFor(InventoryController inventory, int side, String label) {
     final cell = inventory.cellById(_cells[side]);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 8),
+          child: Text(label, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
+        ),
+        _pickerField(inventory, side, cell),
+      ],
+    );
+  }
+
+  Widget _pickerField(InventoryController inventory, int side, Cell? cell) {
     return Material(
       color: Colors.white,
       borderRadius: BorderRadius.circular(16),
@@ -284,28 +366,40 @@ class _SwapScreenState extends State<SwapScreen> {
       );
     }
 
-    final ready = inventory.cellById(_cells[1 - side]) != null && !_saving;
     Widget part(ComponentType type) {
       final c = _shown(inventory, side, type);
+      final selected = _type == type;
       final changed = _swapped.contains(type);
-      return Row(
-        children: [
-          Text(type.label, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              c?.serialCode ?? '—',
-              textAlign: TextAlign.end,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                color: changed ? AppColors.orange : AppColors.ink,
-              ),
+      return Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: InkWell(
+          key: ValueKey('swap-part-${type.name}-$side'),
+          borderRadius: BorderRadius.circular(14),
+          onTap: () => setState(() => _type = type),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: selected ? AppColors.blueSoft : AppColors.surface,
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(type.label, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+                Text(
+                  c?.serialCode ?? '—',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: selected ? AppColors.blue : (changed ? AppColors.orange : AppColors.ink),
+                  ),
+                ),
+              ],
             ),
           ),
-        ],
+        ),
       );
     }
 
@@ -329,7 +423,7 @@ class _SwapScreenState extends State<SwapScreen> {
             child: CellModelView(
               anode: _shown(inventory, side, ComponentType.anode)?.serialCode,
               cathode: _shown(inventory, side, ComponentType.cathode)?.serialCode,
-              slot: (type, size, bar) => _slot(inventory, side, type, size, bar, enabled: ready),
+              slot: (type, size, bar) => _slot(side, type, bar),
             ),
           ),
           const SizedBox(height: 8),
@@ -339,7 +433,6 @@ class _SwapScreenState extends State<SwapScreen> {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppColors.ink),
           ),
-          const SizedBox(height: 4),
           part(ComponentType.anode),
           part(ComponentType.cathode),
         ],
@@ -347,79 +440,40 @@ class _SwapScreenState extends State<SwapScreen> {
     );
   }
 
-  /// A slot of [side]: its bar can be dragged to the other cell, and it takes
-  /// drops from the other cell of any type (a wrong one is refused with a message).
-  Widget _slot(
-    InventoryController inventory,
-    int side,
-    ComponentType type,
-    Size size,
-    Widget bar, {
-    required bool enabled,
-  }) {
-    final serial = _shown(inventory, side, type)?.serialCode;
-    final data = (type: type, side: side);
-    final changed = _swapped.contains(type);
-
-    return DragTarget<({ComponentType type, int side})>(
-      onWillAcceptWithDetails: (d) => enabled && d.data.side != side,
-      onAcceptWithDetails: (d) => _drop(inventory, d.data, type),
-      builder: (context, hovering, _) {
-        final hoverColor = hovering.isEmpty
-            ? null
-            : (hovering.first?.type == type ? AppColors.orange : AppColors.error);
-        return DecoratedBox(
-          key: ValueKey('swap-${type.name}-$side'),
-          position: DecorationPosition.foreground,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(4),
-            color: hoverColor?.withValues(alpha: 0.18),
-            border: hoverColor != null
-                ? Border.all(color: hoverColor, width: 2.5)
-                : (changed ? Border.all(color: AppColors.orange, width: 1.5) : null),
-          ),
-          child: serial == null || !enabled
-              ? bar
-              : LongPressDraggable<({ComponentType type, int side})>(
-                  data: data,
-                  feedback: CellModelView.liftedBar(type, serial, size),
-                  childWhenDragging: const Opacity(opacity: 0.3, child: SizedBox.expand()),
-                  child: Semantics(label: '${type.label} $serial. Mantén pulsado para arrastrarlo.', child: bar),
-                ),
-        );
-      },
+  /// A slot of [side], outlined while its type is staged as swapped.
+  Widget _slot(int side, ComponentType type, Widget bar) {
+    return DecoratedBox(
+      key: ValueKey('swap-${type.name}-$side'),
+      position: DecorationPosition.foreground,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(4),
+        border: _swapped.contains(type) ? Border.all(color: AppColors.orange, width: 1.5) : null,
+      ),
+      child: bar,
     );
   }
 
   Widget _saveButton() {
     return SizedBox(
-      width: 84,
-      height: 96,
-      child: FilledButton(
-        onPressed: _saving ? null : _save,
-        style: FilledButton.styleFrom(
-          backgroundColor: AppColors.blue,
-          disabledBackgroundColor: AppColors.blue,
-          padding: const EdgeInsets.all(8),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        ),
-        child: _saving
+      height: 52,
+      child: FilledButton.icon(
+        onPressed: _dirty && !_saving ? _save : null,
+        icon: _saving
             ? const SizedBox.square(
-                dimension: 22,
+                dimension: 18,
                 child: CircularProgressIndicator(strokeWidth: 2.5, color: Colors.white),
               )
-            : const Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.check, size: 22),
-                  SizedBox(height: 4),
-                  Text(
-                    'Guardar cambios',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, height: 1.2),
-                  ),
-                ],
-              ),
+            : const Icon(Icons.check, size: 20),
+        label: const Text('Guardar cambios'),
+        style: FilledButton.styleFrom(
+          backgroundColor: AppColors.blue,
+          foregroundColor: Colors.white,
+          // Faded blue until there is something to save (while saving it stays solid).
+          disabledBackgroundColor: _saving ? AppColors.blue : AppColors.blue.withValues(alpha: 0.5),
+          disabledForegroundColor: Colors.white,
+          shape: const StadiumBorder(),
+          textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+        ),
       ),
     );
   }

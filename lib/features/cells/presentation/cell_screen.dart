@@ -1,4 +1,3 @@
-import 'dart:math';
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
@@ -16,7 +15,7 @@ import '../../../core/widgets/screen_header.dart';
 import '../data/cell.dart';
 import '../data/component.dart';
 import 'cell_sounds.dart';
-import 'cell_actions.dart' show LoadErrorView, removeCellWithChecks, showCellSheet, swapWithConfirmation;
+import 'cell_actions.dart' show LoadErrorView, removeCellWithChecks, showCellSheet;
 import 'component_actions.dart' show disableComponentWithChecks, showComponentSheet;
 import 'inventory_controller.dart';
 import 'component_rotable_bar.dart';
@@ -26,9 +25,9 @@ const _tileExtent = 212.0;
 
 /// Every cell from the backend, one horizontal row per section (the letter of
 /// its name: A1, A2… then B1…). A cell with both components is shown closed;
-/// once opened, its anode and cathode can be dragged onto another open cell to
-/// swap them, or tapped to fly into a view of that bar with the component as
-/// the backend has it now.
+/// once opened, its anode and cathode can be tapped to fly into a view of that
+/// bar with the component as the backend has it now. Swaps are done on the
+/// swap screen.
 class ProductionLineScreen extends StatefulWidget {
   const ProductionLineScreen({super.key, this.userName, this.userRole, this.onLogout});
 
@@ -46,15 +45,13 @@ class ProductionLineScreen extends StatefulWidget {
 class _ProductionLineScreenState extends State<ProductionLineScreen> with TickerProviderStateMixin {
   final _scroll = ScrollController();
   final _stackKey = GlobalKey();
-  final _listKey = GlobalKey();
   final _tileKeys = <String, GlobalKey>{};
 
   /// Section letter of each cell as last laid out. Part of its keys: a cell
   /// renamed into another section is built anew in that row, not moved there.
   final _sectionOf = <int, String>{};
 
-  /// One horizontal row per section letter, so a drag can scroll it sideways.
-  final _rowKeys = <String, GlobalKey>{};
+  /// One horizontal row per section letter.
   final _rowPages = <String, PageController>{};
 
   /// What is typed in the search box, lower-cased.
@@ -66,13 +63,6 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
 
   /// Complete cells the user opened. A complete cell not listed here is closed.
   final _opened = <int>{};
-
-  /// Bars travelling between cells after a swap is confirmed.
-  List<({Component component, Rect from, Rect to})> _flights = const [];
-  late final _flight = AnimationController(vsync: this, duration: const Duration(milliseconds: 750));
-
-  /// A component is being dragged: moving near the list's edges scrolls it.
-  bool _dragging = false;
 
   int? _cellId;
   ComponentType _focus = ComponentType.anode;
@@ -88,7 +78,6 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
   @override
   void dispose() {
     _zoom.dispose();
-    _flight.dispose();
     _scroll.dispose();
     for (final c in _rowPages.values) {
       c.dispose();
@@ -140,97 +129,6 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
   Future<void> _refresh() async {
     await context.read<InventoryController>().load();
     if (mounted) setState(() => _refreshedAt = DateTime.now());
-  }
-
-  /// While a component is dragged near the top or bottom of the list, scroll
-  /// it, and near the sides of a section's row, turn to the next or previous
-  /// cell, so the drop can reach any of the cells. Fed by a listener around the list, not by the dragged tile: that
-  /// tile is disposed once scrolled away.
-  void _autoScroll(Offset globalPosition) {
-    if (!_dragging) return;
-    const step = 24.0;
-    void nudge(ScrollController controller, double at, double extent, double edge) {
-      final delta = at < edge ? -step : (at > extent - edge ? step : 0.0);
-      if (delta == 0 || !controller.hasClients) return;
-      final position = controller.position;
-      controller.jumpTo((position.pixels + delta).clamp(position.minScrollExtent, position.maxScrollExtent));
-    }
-
-    RenderBox? boxOf(GlobalKey key) => key.currentContext?.findRenderObject() as RenderBox?;
-    final list = boxOf(_listKey);
-    if (list != null) nudge(_scroll, list.globalToLocal(globalPosition).dy, list.size.height, 90);
-    for (final MapEntry(key: section, value: key) in _rowKeys.entries) {
-      final row = boxOf(key);
-      if (row == null || !row.attached) continue;
-      final at = row.globalToLocal(globalPosition);
-      if (at.dy < 0 || at.dy > row.size.height) continue;
-      final pages = _rowPages[section]!;
-      // One cell per page: wait for a turn to finish before taking the next.
-      // Narrow edges: the anode of a card sits close to the left one.
-      if (!pages.hasClients || pages.position.isScrollingNotifier.value) continue;
-      const turn = Duration(milliseconds: 300);
-      if (at.dx > row.size.width - 32) pages.nextPage(duration: turn, curve: Curves.easeOutCubic);
-      if (at.dx < 32) pages.previousPage(duration: turn, curve: Curves.easeOutCubic);
-    }
-  }
-
-  /// Once the swap is confirmed, each bar flies over to the other's slot while
-  /// the request runs; afterwards they show in their new cells.
-  void _swap(Component dragged, Component? target) {
-    if (target == null) {
-      // Same type onto an empty slot: there is nothing to exchange it with.
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('El intercambio no se puede realizar porque no hay un componente disponible.')),
-      );
-      return;
-    }
-    swapWithConfirmation(
-      context,
-      dragged,
-      target,
-      onConfirmed: () {
-        final from = _rectOf(_barKey(dragged.cellId!, dragged.type));
-        final to = _rectOf(_barKey(target.cellId!, target.type));
-        if (from == null || to == null) return; // a cell scrolled away: just swap
-        setState(() {
-          _flights = [(component: dragged, from: from, to: to), (component: target, from: to, to: from)];
-        });
-        _flight.forward(from: 0).whenComplete(() {
-          if (mounted) setState(() => _flights = const []);
-        });
-      },
-    );
-  }
-
-  Widget _flyingBar(({Component component, Rect from, Rect to}) flight, int index) {
-    return AnimatedBuilder(
-      animation: _flight,
-      builder: (context, _) {
-        final t = Curves.easeInOutCubic.transform(_flight.value);
-        // Up out of the bath, over to the other cell and down into its slot;
-        // the two bars curve to opposite sides so they pass each other.
-        final arc = sin(pi * t);
-        final side = index == 0 ? 1.0 : -1.0;
-        final rect = Rect.lerp(flight.from, flight.to, t)!.shift(Offset(side * arc * 70, -arc * 30));
-        return Positioned.fromRect(
-          rect: rect,
-          child: IgnorePointer(
-            child: Transform.rotate(
-              key: ValueKey('flying-${flight.component.id}'),
-              angle: -side * 0.25 * arc,
-              child: Transform.scale(
-                scale: 1 + 0.1 * arc,
-                child: _ShadowedBar(
-                  type: flight.component.type,
-                  serial: flight.component.serialCode,
-                  size: flight.from.size,
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
   }
 
   Future<void> _exit() async {
@@ -327,7 +225,6 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
                 },
                 child: IgnorePointer(ignoring: selected != null, child: _line(inventory, cells, parts)),
               ),
-              for (var i = 0; i < _flights.length; i++) _flyingBar(_flights[i], i),
               if (selected != null)
                 AnimatedBuilder(
                   animation: _zoom,
@@ -477,9 +374,6 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
             onOpen: () => _open(cell),
             onClose: complete && opened ? () => setState(() => _opened.remove(cell.id)) : null,
             onTap: (type) => _enter(cell, type),
-            onSwap: _swap,
-            flying: {for (final f in _flights) f.component.id},
-            onDragStarted: () => _dragging = true,
             onCode: () => context.push('/barcodes?cell=${cell.id}'),
             onEdit: actionable ? () => showCellSheet(context, inventory, cell: cell) : null,
             onDisable: actionable ? () => removeCellWithChecks(context, cell) : null,
@@ -488,49 +382,42 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
       );
     }
 
-    return Listener(
-      onPointerMove: (e) => _autoScroll(e.position),
-      onPointerUp: (_) => _dragging = false,
-      onPointerCancel: (_) => _dragging = false,
-      child: RefreshIndicator(
-        color: AppColors.blue,
-        onRefresh: inventory.load,
-        child: CustomScrollView(
-          key: _listKey,
-          controller: _scroll,
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            SliverToBoxAdapter(child: _header(inventory)),
-            SliverToBoxAdapter(child: top),
-            for (final MapEntry(key: letter, value: row) in sections.entries) ...[
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
-                sliver: SliverToBoxAdapter(
-                  child: SectionTitle(
-                    'EL $letter',
-                    trailing: row.length == 1 ? '1 celda' : '${row.length} celdas · desliza →',
+    return RefreshIndicator(
+      color: AppColors.blue,
+      onRefresh: inventory.load,
+      child: CustomScrollView(
+        controller: _scroll,
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverToBoxAdapter(child: _header(inventory)),
+          SliverToBoxAdapter(child: top),
+          for (final MapEntry(key: letter, value: row) in sections.entries) ...[
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(16, 24, 16, 12),
+              sliver: SliverToBoxAdapter(
+                child: SectionTitle(
+                  'EL $letter',
+                  trailing: row.length == 1 ? '1 celda' : '${row.length} celdas · desliza →',
+                ),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: _tileExtent + 14,
+                // One centred cell per page: only the one on screen is built
+                // (and its neighbour while turning), even with 150.
+                child: PageView.builder(
+                  controller: _rowPages.putIfAbsent(letter, PageController.new),
+                  itemCount: row.length,
+                  itemBuilder: (context, i) => Center(
+                    child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 520), child: tile(row[i])),
                   ),
                 ),
               ),
-              SliverToBoxAdapter(
-                child: SizedBox(
-                  key: _rowKeys.putIfAbsent(letter, GlobalKey.new),
-                  height: _tileExtent + 14,
-                  // One centred cell per page: only the one on screen is built
-                  // (and its neighbour while turning), even with 150.
-                  child: PageView.builder(
-                    controller: _rowPages.putIfAbsent(letter, PageController.new),
-                    itemCount: row.length,
-                    itemBuilder: (context, i) => Center(
-                      child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 520), child: tile(row[i])),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
+            ),
           ],
-        ),
+          const SliverToBoxAdapter(child: SizedBox(height: 24)),
+        ],
       ),
     );
   }
@@ -579,8 +466,8 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
 }
 
 /// The cell's jar with its anode and cathode, as on the line, for other
-/// screens. [slot] wraps each slot (its bar, or an empty space) so it can be
-/// dragged or take a drop; [size] is the slot's size.
+/// screens. [slot] wraps each slot (its bar, or an empty space); [size] is the
+/// slot's size.
 class CellModelView extends StatelessWidget {
   const CellModelView({super.key, this.anode, this.cathode, this.slot});
 
@@ -588,10 +475,6 @@ class CellModelView extends StatelessWidget {
   final String? anode;
   final String? cathode;
   final Widget Function(ComponentType type, Size size, Widget bar)? slot;
-
-  /// A bar lifted off its slot, with a shadow: the feedback of a drag.
-  static Widget liftedBar(ComponentType type, String serial, Size size) =>
-      _LiftedBar(type: type, serial: serial, size: size);
 
   @override
   Widget build(BuildContext context) {
@@ -654,9 +537,6 @@ class _CellTile extends StatefulWidget {
     required this.onOpen,
     required this.onClose,
     required this.onTap,
-    required this.onSwap,
-    required this.flying,
-    required this.onDragStarted,
     required this.onCode,
     required this.onEdit,
     required this.onDisable,
@@ -674,12 +554,6 @@ class _CellTile extends StatefulWidget {
   final VoidCallback? onClose;
   final ValueChanged<ComponentType> onTap;
 
-  /// [target] is null when dropped on an empty slot of the same type.
-  final void Function(Component dragged, Component? target) onSwap;
-
-  /// Ids of components drawn by the swap overlay right now, not in their slot.
-  final Set<int> flying;
-  final VoidCallback onDragStarted;
   final VoidCallback onCode;
 
   /// Rename / remove the cell; null while it is busy.
@@ -942,8 +816,7 @@ class _CellTileState extends State<_CellTile> with SingleTickerProviderStateMixi
     );
   }
 
-  /// A bar slot: tap to see the component, long-press to drag it, and a drop
-  /// target for the same type from another cell.
+  /// A bar slot: tap to see the component.
   Widget _zone(ComponentType type, Rect rect, Component? component) {
     final cell = widget.cell;
     final tappable = GestureDetector(
@@ -952,46 +825,7 @@ class _CellTileState extends State<_CellTile> with SingleTickerProviderStateMixi
       onTap: () => widget.onTap(type),
       child: KeyedSubtree(
         key: widget.barKey(type),
-        // A bar in flight during a swap is drawn by the screen's overlay instead.
-        child: component == null || widget.flying.contains(component.id)
-            ? const SizedBox.expand()
-            : _Bar(type: type, serial: component.serialCode),
-      ),
-    );
-
-    // Red over an empty slot: the drop is taken only to say why it cannot swap.
-    final hoverColor = component == null ? AppColors.error : AppColors.orange;
-    final target = DragTarget<Component>(
-      // Only a component of the same type from another cell, onto one that is
-      // there: the backend swaps two assigned components.
-      // Same type from another cell. An empty slot takes the drop too, only to
-      // explain why the swap cannot happen (the backend needs two components).
-      onWillAcceptWithDetails: (d) => !widget.busy && d.data.type == type && d.data.cellId != cell.id,
-      onAcceptWithDetails: (d) => widget.onSwap(d.data, component),
-      builder: (context, hovering, _) => DecoratedBox(
-        position: DecorationPosition.foreground,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(4),
-          color: hovering.isEmpty ? null : hoverColor.withValues(alpha: 0.18),
-          border: hovering.isEmpty ? null : Border.all(color: hoverColor, width: 2.5),
-        ),
-        // The bar under the dragged one rises a little: it is about to come out.
-        child: AnimatedSlide(
-          offset: hovering.isEmpty ? Offset.zero : const Offset(0, -0.2),
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          child: component == null
-              ? tappable
-              : LongPressDraggable<Component>(
-                  data: component,
-                  maxSimultaneousDrags: widget.busy ? 0 : 1,
-                  onDragStarted: widget.onDragStarted,
-                  // Pulled out of the bath: the slot is left empty while it travels.
-                  feedback: _LiftedBar(type: type, serial: component.serialCode, size: rect.size),
-                  childWhenDragging: const Opacity(opacity: 0.6, child: CustomPaint(painter: _EmptyBarPainter())),
-                  child: tappable,
-                ),
-        ),
+        child: component == null ? const SizedBox.expand() : _Bar(type: type, serial: component.serialCode),
       ),
     );
 
@@ -1001,7 +835,7 @@ class _CellTileState extends State<_CellTile> with SingleTickerProviderStateMixi
       child: Semantics(
         button: true,
         label: component == null ? '$name: sin asignar' : '$name: ${component.serialCode}',
-        child: MouseRegion(cursor: SystemMouseCursors.click, child: target),
+        child: MouseRegion(cursor: SystemMouseCursors.click, child: tappable),
       ),
     );
   }
@@ -1099,73 +933,6 @@ class _Bar extends StatelessWidget {
           ],
         );
       },
-    );
-  }
-}
-
-/// The bar that follows the finger: it starts where it sat and is pulled up
-/// out of the bath, leaning and casting a shadow as it lifts.
-class _LiftedBar extends StatefulWidget {
-  const _LiftedBar({required this.type, required this.serial, required this.size});
-
-  final ComponentType type;
-  final String serial;
-  final Size size;
-
-  @override
-  State<_LiftedBar> createState() => _LiftedBarState();
-}
-
-class _LiftedBarState extends State<_LiftedBar> with SingleTickerProviderStateMixin {
-  late final _lift = AnimationController(vsync: this, duration: const Duration(milliseconds: 220))..forward();
-
-  @override
-  void dispose() {
-    _lift.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _lift,
-      builder: (context, child) {
-        final v = Curves.easeOutBack.transform(_lift.value);
-        return Transform.translate(
-          offset: Offset(0, -widget.size.height * 0.25 * v),
-          child: Transform.rotate(
-            angle: -0.12 * v,
-            child: Transform.scale(scale: 1 + 0.08 * v, child: child),
-          ),
-        );
-      },
-      child: _ShadowedBar(type: widget.type, serial: widget.serial, size: widget.size),
-    );
-  }
-}
-
-/// A bar off its slot (dragged or flying during a swap), with a drop shadow.
-class _ShadowedBar extends StatelessWidget {
-  const _ShadowedBar({required this.type, required this.serial, required this.size});
-
-  final ComponentType type;
-  final String serial;
-  final Size size;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox.fromSize(
-      size: size,
-      // Material: the dragged copy lives in the overlay, outside the page's text style.
-      child: Material(
-        type: MaterialType.transparency,
-        child: DecoratedBox(
-          decoration: const BoxDecoration(
-            boxShadow: [BoxShadow(color: Color(0x40000000), blurRadius: 14, offset: Offset(4, 10))],
-          ),
-          child: _Bar(type: type, serial: serial),
-        ),
-      ),
     );
   }
 }

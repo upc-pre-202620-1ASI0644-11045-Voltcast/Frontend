@@ -5,7 +5,6 @@ import 'package:actualvoltcast/features/cells/data/pending_swap.dart';
 import 'package:actualvoltcast/features/cells/presentation/cell_sounds.dart';
 import 'package:actualvoltcast/features/cells/presentation/inventory_controller.dart';
 import 'package:actualvoltcast/features/cells/presentation/swap_screen.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -66,17 +65,18 @@ Future<void> _pickRight(WidgetTester tester, int cellId) async {
   await tester.pumpAndSettle();
 }
 
-/// Long-presses the slot [from] (`swap-<type>-<side>`) and drops it on [to].
-Future<void> _drag(WidgetTester tester, String from, String to) async {
-  final gesture = await tester.startGesture(tester.getCenter(find.byKey(ValueKey(from))));
-  await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
-  await gesture.moveTo(tester.getCenter(find.byKey(ValueKey(to))));
-  await tester.pump();
-  await gesture.up();
+/// Picks [type] in the toggle and presses "Intercambiar ánodos" / "Intercambiar cátodos".
+Future<void> _stage(WidgetTester tester, String type) async {
+  await tester.tap(find.byKey(ValueKey('swap-type-$type')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(const ValueKey('swap-stage')));
   await tester.pumpAndSettle();
 }
 
-final _save = find.text('Guardar cambios');
+final _save = find.widgetWithText(FilledButton, 'Guardar cambios');
+
+/// "Guardar cambios" is always there; it only turns on once a swap is staged.
+bool _canSave(WidgetTester tester) => tester.widget<FilledButton>(_save).onPressed != null;
 
 Future<void> _back(WidgetTester tester) async {
   await tester.tap(find.byTooltip('Volver'));
@@ -103,13 +103,13 @@ void main() {
     expect(find.text('Celda A2'), findsOneWidget);
   });
 
-  testWidgets('a drop only stages the swap; "Guardar cambios" sends it', (tester) async {
+  testWidgets('"Intercambiar" only stages the swap; "Guardar cambios" sends it', (tester) async {
     final backend = await _pump(tester);
     await _pickRight(tester, 2);
-    expect(_save, findsNothing); // nothing to save yet
+    expect(_canSave(tester), isFalse); // nothing to save yet
 
-    await _drag(tester, 'swap-cathode-0', 'swap-cathode-1');
-    expect(_save, findsOneWidget);
+    await _stage(tester, 'cathode');
+    expect(_canSave(tester), isTrue);
     expect(backend.swapRequests, 0); // not sent until saved
     // The cells already show the exchange.
     expect(
@@ -117,21 +117,23 @@ void main() {
       findsOneWidget,
     );
 
+    await tester.ensureVisible(_save);
     await tester.tap(_save);
     await tester.pumpAndSettle();
     expect(backend.swapRequests, 1);
     expect(backend.component(1)['cell_id'], 2);
     expect(backend.component(3)['cell_id'], 1);
     expect(find.text('Cambios guardados.'), findsOneWidget);
-    expect(_save, findsNothing);
+    expect(_canSave(tester), isFalse);
   });
 
   testWidgets('both pairs can be swapped and saved together', (tester) async {
     final backend = await _pump(tester);
     await _pickRight(tester, 2);
 
-    await _drag(tester, 'swap-cathode-0', 'swap-cathode-1');
-    await _drag(tester, 'swap-anode-1', 'swap-anode-0'); // from either side
+    await _stage(tester, 'cathode');
+    await _stage(tester, 'anode');
+    await tester.ensureVisible(_save);
     await tester.tap(_save);
     await tester.pumpAndSettle();
 
@@ -140,34 +142,53 @@ void main() {
     expect([backend.component(3)['cell_id'], backend.component(4)['cell_id']], [1, 1]);
   });
 
-  testWidgets('dragging a bar back undoes the staged swap', (tester) async {
-    await _pump(tester);
+  testWidgets('the type toggle picks what "Intercambiar" swaps; undo clears it', (tester) async {
+    final backend = await _pump(tester);
     await _pickRight(tester, 2);
+    expect(find.text('Sin cambios pendientes'), findsOneWidget);
+    expect(find.text('Intercambiar ánodos'), findsOneWidget);
 
-    await _drag(tester, 'swap-cathode-0', 'swap-cathode-1');
-    await _drag(tester, 'swap-cathode-0', 'swap-cathode-1');
-    expect(_save, findsNothing);
-  });
-
-  testWidgets('an anode dropped on a cathode is refused with a message', (tester) async {
-    await _pump(tester);
-    await _pickRight(tester, 2);
-
-    await _drag(tester, 'swap-anode-0', 'swap-cathode-1');
+    await tester.tap(find.byKey(const ValueKey('swap-type-cathode')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Intercambiar cátodos'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 intercambio pendiente'), findsOneWidget);
+    expect(_canSave(tester), isTrue);
     expect(
-      find.text('Solo puedes intercambiar componentes del mismo tipo: ánodo con ánodo y cátodo con cátodo.'),
+      find.descendant(of: find.byKey(const ValueKey('swap-cathode-1')), matching: find.text('CAT-001')),
       findsOneWidget,
     );
-    expect(_save, findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('swap-undo')));
+    await tester.pumpAndSettle();
+    expect(find.text('Sin cambios pendientes'), findsOneWidget);
+    expect(_canSave(tester), isFalse);
+    expect(backend.swapRequests, 0);
+  });
+
+  testWidgets('pressing "Intercambiar" again undoes the staged swap', (tester) async {
+    await _pump(tester);
+    await _pickRight(tester, 2);
+
+    await _stage(tester, 'cathode');
+    await _stage(tester, 'cathode');
+    expect(_canSave(tester), isFalse);
+  });
+
+  testWidgets('nothing can be dragged: swaps only go through "Intercambiar"', (tester) async {
+    await _pump(tester);
+    await _pickRight(tester, 2);
+
+    expect(find.byWidgetPredicate((w) => w is Draggable), findsNothing);
   });
 
   testWidgets('a cell without that component cannot take part', (tester) async {
     await _pump(tester);
     await _pickRight(tester, 3); // B3 has neither
 
-    await _drag(tester, 'swap-cathode-0', 'swap-cathode-1');
+    await _stage(tester, 'cathode');
     expect(find.text('El intercambio no se puede realizar porque no hay un componente disponible.'), findsOneWidget);
-    expect(_save, findsNothing);
+    expect(_canSave(tester), isFalse);
   });
 
   testWidgets('going back without changes leaves at once', (tester) async {
@@ -178,7 +199,7 @@ void main() {
     // Not awaited: push completes only once the screen is popped.
     GoRouter.of(tester.element(find.text('previous screen'))).push('/swap?cell=1');
     await tester.pumpAndSettle();
-    await _pickRight(tester, 2); // a cell picked but nothing dragged
+    await _pickRight(tester, 2); // a cell picked but nothing staged
     await _back(tester);
     expect(find.text('previous screen'), findsOneWidget);
     expect(find.byType(AlertDialog), findsNothing);
@@ -187,7 +208,7 @@ void main() {
   testWidgets('going back with changes asks; "Descartar" leaves without saving', (tester) async {
     final backend = await _pump(tester);
     await _pickRight(tester, 2);
-    await _drag(tester, 'swap-cathode-0', 'swap-cathode-1');
+    await _stage(tester, 'cathode');
 
     await _back(tester);
     expect(find.text('Tienes cambios sin guardar'), findsOneWidget);
@@ -202,7 +223,7 @@ void main() {
   testWidgets('going back with changes and choosing "Guardar" saves, then leaves', (tester) async {
     final backend = await _pump(tester);
     await _pickRight(tester, 2);
-    await _drag(tester, 'swap-cathode-0', 'swap-cathode-1');
+    await _stage(tester, 'cathode');
 
     await tester.binding.handlePopRoute(); // the system back asks too
     await tester.pumpAndSettle();
@@ -216,13 +237,14 @@ void main() {
   testWidgets('offline the saved swap is applied on the device and queued', (tester) async {
     final backend = await _pump(tester);
     await _pickRight(tester, 2);
-    await _drag(tester, 'swap-cathode-0', 'swap-cathode-1');
+    await _stage(tester, 'cathode');
 
     backend.offline = true;
+    await tester.ensureVisible(_save);
     await tester.tap(_save);
     await tester.pumpAndSettle();
     expect(find.textContaining('Sin conexión'), findsOneWidget);
     expect(backend.component(1)['cell_id'], 1); // the server was not reached
-    expect(_save, findsNothing);
+    expect(_canSave(tester), isFalse);
   });
 }

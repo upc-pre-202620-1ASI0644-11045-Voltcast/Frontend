@@ -12,47 +12,7 @@ import '../../../core/widgets/app_text_field.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../core/widgets/auth_visuals.dart';
 import '../data/cell.dart';
-import '../data/component.dart';
 import 'inventory_controller.dart';
-
-/// Drop of [dragged] onto [target]: same type, different cells (drop targets
-/// only accept those). Asks first because a stray drop would change the
-/// inventory. The production line uses
-/// [onConfirmed] to start its swap animation while the request runs.
-Future<void> swapWithConfirmation(
-  BuildContext context,
-  Component dragged,
-  Component target, {
-  VoidCallback? onConfirmed,
-}) async {
-  final inventory = context.read<InventoryController>();
-  final ok = await confirmDialog(
-    context,
-    title: '¿Intercambiar componentes?',
-    action: 'Intercambiar',
-    actionColor: AppColors.orange,
-  );
-  if (!ok || !context.mounted) return;
-  onConfirmed?.call();
-
-  final messenger = ScaffoldMessenger.of(context);
-  try {
-    final outcome = await inventory.swapComponents(dragged, target);
-    messenger.showSnackBar(
-      outcome == SwapOutcome.queued
-          ? const SnackBar(
-              duration: Duration(seconds: 7),
-              content: Text(
-                'Sin conexión: el intercambio se realizó en tu dispositivo y se sincronizará '
-                'con el servidor cuando se recupere la conexión a internet.',
-              ),
-            )
-          : SnackBar(content: Text('${dragged.serialCode} y ${target.serialCode} intercambiados.')),
-    );
-  } on ApiException catch (e) {
-    messenger.showSnackBar(SnackBar(content: Text(e.message)));
-  }
-}
 
 /// US011, the cell's trash button. A cell without components is removed from
 /// view after a confirmation (E01); creating one with the same name brings it
