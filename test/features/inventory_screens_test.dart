@@ -147,8 +147,6 @@ Future<void> _tapKey(WidgetTester tester, String key) async {
 /// Opens a closed (complete) cell through its lid and the confirmation.
 Future<void> _openCell(WidgetTester tester, int id) async {
   await _tapKey(tester, 'line-lid-$id');
-  await tester.tap(find.text('Abrir'));
-  await tester.pumpAndSettle();
 }
 
 /// [text] as an option of an open dropdown (the line behind shows the same names).
@@ -653,6 +651,14 @@ void main() {
       expect(find.text('Intercambiar componentes'), findsOneWidget);
       expect(find.text('Celda A1'), findsOneWidget); // preselected
       expect(find.text('Elegir celda'), findsOneWidget);
+    });
+
+    testWidgets('the home screen opens the swap screen with no cell picked', (tester) async {
+      await _pump(tester);
+
+      await tester.tap(find.byKey(const ValueKey('swap-between-cells')));
+      await tester.pumpAndSettle();
+      expect(find.text('Elegir celda'), findsNWidgets(2));
     });
 
     testWidgets('the storage opens the swap screen with no cell picked', (tester) async {

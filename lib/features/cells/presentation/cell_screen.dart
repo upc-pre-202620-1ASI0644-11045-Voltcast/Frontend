@@ -419,6 +419,34 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
             const InfoBox(text: 'Aún no hay celdas registradas. Crea la primera con "Nueva".')
           else ...[
             SearchField(onChanged: (text) => setState(() => _query = text.trim().toLowerCase())),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: TextButton.icon(
+                  key: const ValueKey('swap-between-cells'),
+                  onPressed: inventory.hasLoaded ? () => context.push('/swap') : null,
+                  icon: const Icon(Icons.swap_horiz, size: 20),
+                  label: const Text('Intercambiar componentes'),
+                  style: ButtonStyle(
+                    shape: const WidgetStatePropertyAll(StadiumBorder()),
+                    textStyle: const WidgetStatePropertyAll(TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                    // Lime pill while hovered or pressed, plain blue text otherwise.
+                    backgroundColor: WidgetStateProperty.resolveWith(
+                      (states) => states.contains(WidgetState.hovered) || states.contains(WidgetState.pressed)
+                          ? AppColors.lime
+                          : Colors.transparent,
+                    ),
+                    foregroundColor: WidgetStateProperty.resolveWith(
+                      (states) => states.contains(WidgetState.hovered) || states.contains(WidgetState.pressed)
+                          ? AppColors.ink
+                          : AppColors.blue,
+                    ),
+                    overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+                  ),
+                ),
+              ),
+            ),
             if (shown.isEmpty) ...[
               const SizedBox(height: 16),
               const InfoBox(text: 'Ninguna celda coincide con la búsqueda.'),
