@@ -2,7 +2,6 @@ import 'package:actualvoltcast/core/network/api_client.dart';
 import 'package:actualvoltcast/core/theme/app_theme.dart';
 import 'package:actualvoltcast/features/cells/data/inventory_repository.dart';
 import 'package:actualvoltcast/features/cells/data/pending_swap.dart';
-import 'package:actualvoltcast/features/cells/presentation/cell_sounds.dart';
 import 'package:actualvoltcast/features/cells/presentation/inventory_controller.dart';
 import 'package:actualvoltcast/features/cells/presentation/cell_screen.dart';
 import 'package:flutter/gestures.dart';
@@ -21,7 +20,6 @@ Future<FakeInventoryBackend> _pump(
   double width = 400,
   ProductionLineScreen screen = const ProductionLineScreen(),
 }) async {
-  CellSounds.enabled = false; // no audio backend in widget tests
   tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -81,25 +79,11 @@ Future<void> _turnRow(WidgetTester tester, int pages) async {
   await tester.pumpAndSettle();
 }
 
-/// Opens A1 and A2 and comes back to A1, the second one a page away.
-Future<void> _openA1A2(WidgetTester tester) async {
-  await _openCell(tester, 1);
-  await _turnRow(tester, 1);
-  await _openCell(tester, 2);
-  await _turnRow(tester, -1);
-}
-
-/// Opens a closed (complete) cell through its lid.
-Future<void> _openCell(WidgetTester tester, int id) => _tapKey(tester, 'line-lid-$id');
-
 /// The component view is open.
 final _inView = find.byKey(const ValueKey('component-panel'));
 
 /// [text] on the component view's sheet (the line underneath shows serials too).
 Finder _inPanel(String text) => find.descendant(of: _inView, matching: find.text(text));
-
-InventoryController _inventory(WidgetTester tester) =>
-    Provider.of<InventoryController>(tester.element(find.byType(ProductionLineScreen)), listen: false);
 
 void main() {
   testWidgets('greets the user by name and can sign out', (tester) async {
@@ -162,48 +146,17 @@ void main() {
     expect(find.text('Ninguna celda coincide con la búsqueda.'), findsOneWidget);
   });
 
-  testWidgets('a cell with both components starts closed and opens with a tap on its lid', (tester) async {
+  testWidgets('every cell is shown open, with no lid or open/close button', (tester) async {
     await _pump(tester);
 
-    // A1 has an anode and a cathode: the lid covers them until it is tapped.
-    expect(find.byKey(const ValueKey('line-lid-1')), findsOneWidget);
-    await _openCell(tester, 1);
+    expect(find.byKey(const ValueKey('line-anode-1')), findsOneWidget); // A1 has both: still open
     expect(find.byKey(const ValueKey('line-lid-1')), findsNothing);
-
-    // And it can be closed again.
-    await tester.tap(find.text('Cerrar celda'));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('line-lid-1')), findsOneWidget);
-  });
-
-  testWidgets('a cell closes by itself once it gets both components', (tester) async {
-    final backend = FakeInventoryBackend();
-    backend.components.add({
-      'id': 50,
-      'type': 'ANODE',
-      'serial_code': 'ANO-050',
-      'is_active': true,
-      'is_visible': true,
-      'cell_id': null,
-    });
-    await _pump(tester, backend: backend, height: 1400);
-    expect(find.byKey(const ValueKey('line-lid-3')), findsNothing); // B3 is empty
-
-    final inventory = _inventory(tester);
-    final b3 = inventory.cellById(3)!;
-    for (final id in [5, 50]) {
-      final done = inventory.assignComponent(inventory.components.firstWhere((c) => c.id == id), b3);
-      await tester.pumpAndSettle();
-      await done;
-    }
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('line-lid-3')), findsOneWidget);
+    expect(find.text('Abrir celda'), findsNothing);
+    expect(find.text('Cerrar celda'), findsNothing);
   });
 
   testWidgets('tapping an anode flies into a view of that bar with its current data', (tester) async {
     final backend = await _pump(tester);
-    await _openCell(tester, 1);
     final before = backend.requests.length;
 
     await _tapKey(tester, 'line-anode-1');
@@ -228,7 +181,6 @@ void main() {
 
   testWidgets('swiping turns the bar around its vertical axis only', (tester) async {
     await _pump(tester);
-    await _openCell(tester, 1);
     await _tapKey(tester, 'line-cathode-1');
 
     final bar = find.byKey(const ValueKey('detail-bar'));
@@ -251,14 +203,13 @@ void main() {
   testWidgets('an empty slot says the component is missing', (tester) async {
     await _pump(tester);
 
-    await _tapKey(tester, 'line-cathode-3'); // B3 has neither, so it is open
+    await _tapKey(tester, 'line-cathode-3'); // B3 has neither
 
     expect(find.text('Esta celda no tiene cátodo asignado.'), findsOneWidget);
   });
 
   testWidgets('system back zooms out instead of leaving the screen', (tester) async {
     await _pump(tester);
-    await _openCell(tester, 2);
 
     await _tapKey(tester, 'line-anode-2');
     expect(_inView, findsOneWidget);
@@ -291,12 +242,12 @@ void main() {
 
     expect(find.text('Celda A1'), findsOneWidget);
     expect(find.text('Celda A2'), findsNothing); // no peek of the next card
-    // Centred: the card's first and last controls sit the same distance from
+    // Centred: the card's model and its last button sit the same distance from
     // the screen's edges (16 gutter + 12 card padding).
-    final lock = tester.getRect(find.ancestor(of: find.text('Abrir celda').first, matching: find.byType(TextButton)));
-    final delete = tester.getRect(find.byTooltip('Eliminar celda').first);
-    expect(lock.left, 28);
+    final model = tester.getRect(find.byKey(const ValueKey('line-anode-1')));
+    final delete = tester.getRect(find.byTooltip('Deshabilitar celda').first);
     expect(400 - delete.right, 28);
+    expect(model.left, greaterThan(28));
 
     await _turnRow(tester, 1);
     expect(find.text('Celda A2'), findsOneWidget);
@@ -313,7 +264,6 @@ void main() {
 
   testWidgets('a bar cannot be dragged onto another cell: swaps go through the swap screen', (tester) async {
     final backend = await _pump(tester, height: 1400);
-    await _openA1A2(tester);
 
     expect(find.byWidgetPredicate((w) => w is Draggable), findsNothing);
     await _drag(tester, from: 'line-cathode-1', to: 'line-cathode-2');
@@ -321,16 +271,6 @@ void main() {
     expect(find.text('¿Intercambiar componentes?'), findsNothing);
     expect(backend.swapRequests, 0);
     expect(backend.component(1)['cell_id'], 1);
-  });
-
-  testWidgets('the "Abrir celda" button opens a closed cell like its lid', (tester) async {
-    await _pump(tester);
-
-    await tester.tap(find.text('Abrir celda').first);
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('line-lid-1')), findsNothing);
-    expect(find.text('Cerrar celda'), findsOneWidget);
   });
 
   group('replaces the cells and components screens', () {
@@ -363,7 +303,7 @@ void main() {
     testWidgets('a cell without components is removed from the line', (tester) async {
       final backend = await _pump(tester, height: 1400);
 
-      await tester.tap(find.byTooltip('Eliminar celda').at(1)); // B3 (A2 is on the next page)
+      await tester.tap(find.byTooltip('Eliminar celda').first); // B3 (A1 has components)
       await tester.pumpAndSettle();
       expect(find.text('¿Eliminar la celda B3?'), findsOneWidget);
       await tester.tap(find.text('Eliminar'));
@@ -375,7 +315,6 @@ void main() {
 
     testWidgets('the component view edits the component and explains why it cannot be disabled', (tester) async {
       await _pump(tester);
-      await _openCell(tester, 1);
       await _tapKey(tester, 'line-anode-1');
 
       await tester.tap(_inPanel('Editar'));

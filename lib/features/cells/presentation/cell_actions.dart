@@ -51,7 +51,7 @@ Future<void> removeCellWithChecks(BuildContext context, Cell cell) async {
     context,
     title: 'La celda tiene componentes asignados',
     message:
-        'No se puede eliminar la celda ${cell.name} mientras tenga '
+        'No se puede deshabilitar la celda ${cell.name} mientras tenga '
         '${serials.isEmpty ? 'componentes' : serials} asignados. Puedes liberarlos: '
         'quedarán disponibles y la celda pasará a inactiva.',
     action: 'Liberar componentes',

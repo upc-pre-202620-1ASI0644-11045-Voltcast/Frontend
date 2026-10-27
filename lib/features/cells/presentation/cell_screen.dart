@@ -1,7 +1,6 @@
 import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
@@ -14,9 +13,8 @@ import '../../../core/widgets/auth_visuals.dart';
 import '../../../core/widgets/screen_header.dart';
 import '../data/cell.dart';
 import '../data/component.dart';
-import 'cell_sounds.dart';
 import 'cell_actions.dart' show LoadErrorView, removeCellWithChecks, showCellSheet;
-import 'component_actions.dart' show disableComponentWithChecks, showComponentSheet;
+import 'component_actions.dart' show disableComponentWithChecks, showAssignSheet, showComponentSheet;
 import 'inventory_controller.dart';
 import 'component_rotable_bar.dart';
 import 'sync_banner.dart';
@@ -24,9 +22,9 @@ import 'sync_banner.dart';
 const _tileExtent = 212.0;
 
 /// Every cell from the backend, one horizontal row per section (the letter of
-/// its name: A1, A2… then B1…). A cell with both components is shown closed;
-/// once opened, its anode and cathode can be tapped to fly into a view of that
-/// bar with the component as the backend has it now. Swaps are done on the
+/// its name: A1, A2… then B1…), always open: its anode and cathode can be
+/// tapped to fly into a view of that bar with the component as the backend
+/// has it now. Swaps are done on the
 /// swap screen.
 class ProductionLineScreen extends StatefulWidget {
   const ProductionLineScreen({super.key, this.userName, this.userRole, this.onLogout});
@@ -61,19 +59,10 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
   final _barKeys = <String, GlobalKey>{};
   late final _zoom = AnimationController(vsync: this, duration: const Duration(milliseconds: 750));
 
-  /// Complete cells the user opened. A complete cell not listed here is closed.
-  final _opened = <int>{};
-
   int? _cellId;
   ComponentType _focus = ComponentType.anode;
   Rect? _origin;
   DateTime? _refreshedAt;
-
-  @override
-  void initState() {
-    super.initState();
-    CellSounds.preload();
-  }
 
   @override
   void dispose() {
@@ -97,8 +86,6 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
   }
 
   Rect? _originOf(int cellId, ComponentType type) => _rectOf(_barKey(cellId, type)) ?? _rectOf(_tileKey(cellId));
-
-  void _open(Cell cell) => setState(() => _opened.add(cell.id));
 
   Future<void> _enter(Cell cell, ComponentType focus) async {
     if (_cellId != null || _zoom.isAnimating) return;
@@ -200,9 +187,6 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
     for (final c in inventory.components) {
       if (c.isInUse) parts.putIfAbsent(c.cellId!, () => {})[c.type] ??= c;
     }
-    // A cell that lost a component forgets it was opened, so it closes again
-    // (with its animation) as soon as both are assigned once more.
-    _opened.removeWhere((id) => parts[id]?.length != 2);
 
     return LayoutBuilder(
       builder: (context, box) {
@@ -356,8 +340,6 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
     Widget tile(Cell cell) {
       final anode = parts[cell.id]?[ComponentType.anode];
       final cathode = parts[cell.id]?[ComponentType.cathode];
-      final complete = anode != null && cathode != null;
-      final opened = _opened.contains(cell.id);
       // Inactive cells are edited and removed too: only a busy one waits.
       final actionable = !inventory.isCellBusy(cell.id);
       return RepaintBoundary(
@@ -368,11 +350,8 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
             cell: cell,
             anode: anode,
             cathode: cathode,
-            closed: complete && !opened,
             busy: [anode, cathode].any((c) => c != null && inventory.isComponentBusy(c.id)),
             barKey: (type) => _barKey(cell.id, type),
-            onOpen: () => _open(cell),
-            onClose: complete && opened ? () => setState(() => _opened.remove(cell.id)) : null,
             onTap: (type) => _enter(cell, type),
             onCode: () => context.push('/barcodes?cell=${cell.id}'),
             onEdit: actionable ? () => showCellSheet(context, inventory, cell: cell) : null,
@@ -519,23 +498,19 @@ abstract final class _Model {
   static const membraneX = 0.48;
   static const anodeSlot = Rect.fromLTRB(0.22, 0.14, 0.38, 0.90);
   static const cathodeSlot = Rect.fromLTRB(0.58, 0.14, 0.74, 0.90);
-  static const lid = Rect.fromLTRB(0.07, 0.10, 0.93, 0.99);
 
   /// Depth of a bar's top and side faces, as a fraction of its width.
   static const barDepth = 0.22;
 }
 
-class _CellTile extends StatefulWidget {
+class _CellTile extends StatelessWidget {
   const _CellTile({
     super.key,
     required this.cell,
     required this.anode,
     required this.cathode,
-    required this.closed,
     required this.busy,
     required this.barKey,
-    required this.onOpen,
-    required this.onClose,
     required this.onTap,
     required this.onCode,
     required this.onEdit,
@@ -545,13 +520,8 @@ class _CellTile extends StatefulWidget {
   final Cell cell;
   final Component? anode;
   final Component? cathode;
-  final bool closed;
   final bool busy;
   final GlobalKey Function(ComponentType type) barKey;
-  final VoidCallback onOpen;
-
-  /// Puts the lid back on an opened complete cell; null otherwise.
-  final VoidCallback? onClose;
   final ValueChanged<ComponentType> onTap;
 
   final VoidCallback onCode;
@@ -561,45 +531,10 @@ class _CellTile extends StatefulWidget {
   final VoidCallback? onDisable;
 
   @override
-  State<_CellTile> createState() => _CellTileState();
-}
-
-class _CellTileState extends State<_CellTile> with SingleTickerProviderStateMixin {
-  /// 1 = lid on, 0 = open. A tile built already closed shows the lid at once;
-  /// only a change while on screen is animated.
-  late final _lid = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 650),
-    value: widget.closed ? 1 : 0,
-  );
-
-  @override
-  void didUpdateWidget(_CellTile old) {
-    super.didUpdateWidget(old);
-    if (old.closed == widget.closed) return;
-    if (widget.closed) {
-      // The lock sounds as the lid starts coming down, whatever closed it.
-      HapticFeedback.mediumImpact();
-      CellSounds.close();
-      _lid.forward();
-    } else {
-      HapticFeedback.mediumImpact();
-      CellSounds.open();
-      _lid.reverse();
-    }
-  }
-
-  @override
-  void dispose() {
-    _lid.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
-    final cell = widget.cell;
     // A cell is active while it has a cathode and an anode (the backend's rule).
-    final active = widget.anode != null && widget.cathode != null;
+    final active = anode != null && cathode != null;
+    final hasComponents = anode != null || cathode != null;
 
     Widget part(ComponentType type, Component? c) => Row(
       children: [
@@ -621,21 +556,6 @@ class _CellTileState extends State<_CellTile> with SingleTickerProviderStateMixi
           ),
         ),
       ],
-    );
-
-    Widget lockButton(String label, IconData icon, VoidCallback onPressed) => SizedBox(
-      height: 40,
-      child: TextButton.icon(
-        onPressed: onPressed,
-        icon: Icon(icon, size: 17),
-        label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis),
-        style: TextButton.styleFrom(
-          backgroundColor: AppColors.blueSoft,
-          foregroundColor: AppColors.blue,
-          shape: const StadiumBorder(),
-          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-        ),
-      ),
     );
 
     return Container(
@@ -688,12 +608,12 @@ class _CellTileState extends State<_CellTile> with SingleTickerProviderStateMixi
                           ],
                         ),
                         const SizedBox(height: 12),
-                        part(ComponentType.anode, widget.anode),
+                        part(ComponentType.anode, anode),
                         const SizedBox(height: 6),
-                        part(ComponentType.cathode, widget.cathode),
+                        part(ComponentType.cathode, cathode),
                         const SizedBox(height: 10),
                         InkWell(
-                          onTap: () => widget.onTap(ComponentType.anode),
+                          onTap: () => onTap(ComponentType.anode),
                           borderRadius: BorderRadius.circular(6),
                           child: const Padding(
                             padding: EdgeInsets.symmetric(vertical: 4),
@@ -725,33 +645,24 @@ class _CellTileState extends State<_CellTile> with SingleTickerProviderStateMixi
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
             child: Row(
               children: [
-                Expanded(
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: widget.onClose != null
-                        ? lockButton('Cerrar celda', Icons.lock_outline, widget.onClose!)
-                        : widget.closed
-                        ? lockButton('Abrir celda', Icons.lock_open_outlined, widget.onOpen)
-                        : const SizedBox.shrink(),
-                  ),
-                ),
-                const SizedBox(width: 8),
+                const Spacer(),
                 // The barcode screen already generates, shows and downloads it.
                 CircleAction(
                   key: ValueKey('line-code-${cell.id}'),
                   tooltip: cell.barcodeValue == null ? 'Generar código de barras' : 'Código ${cell.barcodeValue}',
                   icon: Icons.qr_code_2,
-                  onPressed: widget.onCode,
+                  onPressed: onCode,
                 ),
                 const SizedBox(width: 8),
-                CircleAction(tooltip: 'Editar celda', icon: Icons.edit_outlined, onPressed: widget.onEdit),
+                CircleAction(tooltip: 'Editar celda', icon: Icons.edit_outlined, onPressed: onEdit),
                 const SizedBox(width: 8),
+                // With components the button disables the cell (releasing them); without, it deletes it.
                 CircleAction(
-                  tooltip: 'Eliminar celda',
-                  icon: Icons.delete_outline,
+                  tooltip: hasComponents ? 'Deshabilitar celda' : 'Eliminar celda',
+                  icon: hasComponents ? Icons.stop_circle_outlined : Icons.delete_outline,
                   color: AppColors.error,
                   background: AppColors.errorSoft,
-                  onPressed: widget.onDisable,
+                  onPressed: onDisable,
                 ),
               ],
             ),
@@ -767,48 +678,19 @@ class _CellTileState extends State<_CellTile> with SingleTickerProviderStateMixi
         final size = box.biggest;
         Rect place(Rect f) =>
             Rect.fromLTRB(f.left * size.width, f.top * size.height, f.right * size.width, f.bottom * size.height);
-        final lidRect = place(_Model.lid);
 
         return Stack(
           children: [
             Positioned.fill(
               child: CustomPaint(
-                painter: _JarBackPainter(hasAnode: widget.anode != null, hasCathode: widget.cathode != null),
+                painter: _JarBackPainter(hasAnode: anode != null, hasCathode: cathode != null),
               ),
             ),
-            _zone(ComponentType.anode, place(_Model.anodeSlot), widget.anode),
-            _zone(ComponentType.cathode, place(_Model.cathodeSlot), widget.cathode),
+            _zone(ComponentType.anode, place(_Model.anodeSlot), anode),
+            _zone(ComponentType.cathode, place(_Model.cathodeSlot), cathode),
             // The bath in front of the bars, so they read as dipped into it.
             const Positioned.fill(
               child: IgnorePointer(child: CustomPaint(painter: _JarFrontPainter())),
-            ),
-            AnimatedBuilder(
-              animation: _lid,
-              builder: (context, child) {
-                final v = Curves.easeInOutCubic.transform(_lid.value);
-                if (v == 0) return const SizedBox.shrink();
-                // Hinged at the top: it swings up and back while fading out.
-                return Positioned.fromRect(
-                  rect: lidRect,
-                  child: IgnorePointer(
-                    ignoring: _lid.isAnimating,
-                    child: Opacity(
-                      opacity: v,
-                      child: Transform.translate(
-                        offset: Offset(0, -(1 - v) * lidRect.height * 0.25),
-                        child: Transform(
-                          alignment: Alignment.topCenter,
-                          transform: Matrix4.identity()
-                            ..setEntry(3, 2, 0.002)
-                            ..rotateX(-(1 - v) * 1.1),
-                          child: child,
-                        ),
-                      ),
-                    ),
-                  ),
-                );
-              },
-              child: _Lid(cellId: widget.cell.id, name: widget.cell.name, onTap: widget.onOpen),
             ),
           ],
         );
@@ -818,13 +700,12 @@ class _CellTileState extends State<_CellTile> with SingleTickerProviderStateMixi
 
   /// A bar slot: tap to see the component.
   Widget _zone(ComponentType type, Rect rect, Component? component) {
-    final cell = widget.cell;
     final tappable = GestureDetector(
       key: ValueKey('line-${type.name}-${cell.id}'),
       behavior: HitTestBehavior.opaque,
-      onTap: () => widget.onTap(type),
+      onTap: () => onTap(type),
       child: KeyedSubtree(
-        key: widget.barKey(type),
+        key: barKey(type),
         child: component == null ? const SizedBox.expand() : _Bar(type: type, serial: component.serialCode),
       ),
     );
@@ -836,55 +717,6 @@ class _CellTileState extends State<_CellTile> with SingleTickerProviderStateMixi
         button: true,
         label: component == null ? '$name: sin asignar' : '$name: ${component.serialCode}',
         child: MouseRegion(cursor: SystemMouseCursors.click, child: tappable),
-      ),
-    );
-  }
-}
-
-/// Cover of a cell with both components: tapping it asks to open the cell.
-class _Lid extends StatelessWidget {
-  const _Lid({required this.cellId, required this.name, required this.onTap});
-
-  final int cellId;
-  final String name;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: 'Celda $name tapada. Toca para abrirla.',
-      child: GestureDetector(
-        key: ValueKey('line-lid-$cellId'),
-        behavior: HitTestBehavior.opaque,
-        onTap: onTap,
-        child: CustomPaint(
-          painter: const _LidPainter(),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(10, 22, 22, 10),
-            child: FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    name,
-                    style: const TextStyle(fontSize: 30, fontWeight: FontWeight.w800, color: Colors.white),
-                  ),
-                  const SizedBox(height: 6),
-                  const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.lock_outline, size: 14, color: Colors.white70),
-                      SizedBox(width: 4),
-                      Text('Toca para abrir', style: TextStyle(fontSize: 11, color: Colors.white70)),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
       ),
     );
   }
@@ -1132,65 +964,6 @@ class _BarPainter extends CustomPainter {
   bool shouldRepaint(_BarPainter old) => old.type != type;
 }
 
-/// Steel cover with a top and side face, a rim seam and rivets.
-class _LidPainter extends CustomPainter {
-  const _LidPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width, h = size.height;
-    final d = w * 0.05;
-    final front = Rect.fromLTRB(0, d, w - d, h);
-    canvas.drawPath(
-      Path()
-        ..moveTo(0, d)
-        ..lineTo(d, 0)
-        ..lineTo(w, 0)
-        ..lineTo(w - d, d)
-        ..close(),
-      Paint()..color = const Color(0xFF8C9BA7),
-    );
-    canvas.drawPath(
-      Path()
-        ..moveTo(w - d, d)
-        ..lineTo(w, 0)
-        ..lineTo(w, h - d)
-        ..lineTo(w - d, h)
-        ..close(),
-      Paint()..color = const Color(0xFF333F48),
-    );
-    canvas.drawRect(
-      front,
-      Paint()
-        ..shader = const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF62727F), Color(0xFF46545F)],
-        ).createShader(front),
-    );
-    final seamY = front.top + front.height * 0.16;
-    canvas.drawLine(
-      Offset(front.left, seamY),
-      Offset(front.right, seamY),
-      Paint()
-        ..color = Colors.black.withValues(alpha: 0.3)
-        ..strokeWidth = 1.5,
-    );
-    final rivet = Paint()..color = const Color(0xFF9AA7B1);
-    for (final c in [
-      Offset(front.left + 8, front.top + 8),
-      Offset(front.right - 8, front.top + 8),
-      Offset(front.left + 8, front.bottom - 8),
-      Offset(front.right - 8, front.bottom - 8),
-    ]) {
-      canvas.drawCircle(c, 2.5, rivet);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_LidPainter old) => false;
-}
-
 /// Inside view of one component: just its bar, plus a floating panel with
 /// the component's data.
 class _ComponentDetail extends StatelessWidget {
@@ -1385,6 +1158,117 @@ class _ComponentDetail extends StatelessWidget {
   }
 }
 
+/// Inside view of a free component, opened from its inventory card: the bar,
+/// its data and "Asignar a una celda" where an installed one offers the swap.
+class FreeComponentScreen extends StatelessWidget {
+  const FreeComponentScreen({super.key, required this.componentId});
+
+  final int componentId;
+
+  @override
+  Widget build(BuildContext context) {
+    final inventory = context.watch<InventoryController>();
+    final c = inventory.components.where((c) => c.id == componentId).firstOrNull;
+    // Assigned, disabled or gone meanwhile: it is no longer a free component.
+    if (c == null || !c.isFree) {
+      // Removed even under a dialog or sheet still closing over it.
+      final route = ModalRoute.of(context);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (route != null && route.isActive) route.navigator?.removeRoute(route);
+      });
+      return const Scaffold(backgroundColor: AppColors.surface);
+    }
+    final busy = inventory.isComponentBusy(c.id);
+
+    return Scaffold(
+      backgroundColor: AppColors.surface,
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: Row(
+                children: [
+                  CircleAction(
+                    tooltip: 'Volver',
+                    icon: Icons.chevron_left,
+                    background: Colors.white,
+                    size: 44,
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                  const Expanded(
+                    child: Column(
+                      children: [
+                        Text('Inventario', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+                        Text(
+                          'Componente libre',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800, color: AppColors.ink),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 44), // balances the back button
+                ],
+              ),
+            ),
+            Expanded(
+              child: Stack(
+                children: [
+                  const Positioned.fill(
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: RadialGradient(radius: 0.6, colors: [Color(0x332563EB), Color(0x002563EB)]),
+                      ),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
+                    child: RotatableBar(key: const ValueKey('detail-bar'), type: c.type, serial: c.serialCode),
+                  ),
+                ],
+              ),
+            ),
+            _ComponentPanel(
+              key: const ValueKey('component-panel'),
+              type: c.type,
+              component: c,
+              loading: inventory.loading,
+              error: inventory.loadError,
+              refreshedAt: null,
+              footer: TextButton.icon(
+                key: const ValueKey('assign-to-cell'),
+                onPressed: busy ? null : () => showAssignSheet(context, inventory, c),
+                icon: const Icon(Icons.add_link, size: 20),
+                label: const Text('Asignar a una celda'),
+                style: TextButton.styleFrom(
+                  foregroundColor: AppColors.blue,
+                  textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                ),
+              ),
+              actions: [
+                _PanelButton(
+                  label: 'Editar',
+                  background: AppColors.blue,
+                  foreground: Colors.white,
+                  onPressed: busy ? null : () => showComponentSheet(context, inventory, component: c),
+                ),
+                _PanelButton(
+                  label: 'Deshabilitar',
+                  background: AppColors.errorSoft,
+                  foreground: AppColors.error,
+                  onPressed: busy ? null : () => disableComponentWithChecks(context, c),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// "Ánodo | Cátodo" segmented switch of the component view.
 class _TypeSwitch extends StatelessWidget {
   const _TypeSwitch({required this.selected, required this.onSelected});
@@ -1484,7 +1368,7 @@ class _EmptyBarPainter extends CustomPainter {
 class _ComponentPanel extends StatelessWidget {
   const _ComponentPanel({
     super.key,
-    required this.cell,
+    this.cell,
     required this.type,
     required this.component,
     required this.loading,
@@ -1494,7 +1378,8 @@ class _ComponentPanel extends StatelessWidget {
     this.footer,
   });
 
-  final Cell cell;
+  /// Null for a free component, seen from the inventory.
+  final Cell? cell;
   final ComponentType type;
   final Component? component;
   final bool loading;
@@ -1589,7 +1474,7 @@ class _ComponentPanel extends StatelessWidget {
               'Esta celda no tiene ${type.label.toLowerCase()} asignado.',
               style: const TextStyle(fontSize: 15, color: AppColors.muted),
             )
-          else ...[
+          else if (cell case final cell?) ...[
             pair(info('ID', '#${c.id}'), info('Celda', cell.name)),
             const SizedBox(height: 10),
             pair(
@@ -1600,7 +1485,8 @@ class _ComponentPanel extends StatelessWidget {
                 color: cell.hasBarcode ? AppColors.ink : AppColors.amber,
               ),
             ),
-          ],
+          ] else
+            pair(info('ID', '#${c.id}'), info('Celda', 'Sin asignar')),
           if (actions.isNotEmpty) ...[
             const SizedBox(height: 16),
             Row(

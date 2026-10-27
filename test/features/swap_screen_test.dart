@@ -2,7 +2,6 @@ import 'package:actualvoltcast/core/network/api_client.dart';
 import 'package:actualvoltcast/core/theme/app_theme.dart';
 import 'package:actualvoltcast/features/cells/data/inventory_repository.dart';
 import 'package:actualvoltcast/features/cells/data/pending_swap.dart';
-import 'package:actualvoltcast/features/cells/presentation/cell_sounds.dart';
 import 'package:actualvoltcast/features/cells/presentation/inventory_controller.dart';
 import 'package:actualvoltcast/features/cells/presentation/swap_screen.dart';
 import 'package:flutter/material.dart';
@@ -15,7 +14,6 @@ import '../helpers/memory_tokens.dart';
 
 /// Opens the swap screen over a stand-in for the screen it came from, with A1 preselected.
 Future<FakeInventoryBackend> _pump(WidgetTester tester, {FakeInventoryBackend? backend}) async {
-  CellSounds.enabled = false;
   tester.view.physicalSize = const Size(400, 900);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);

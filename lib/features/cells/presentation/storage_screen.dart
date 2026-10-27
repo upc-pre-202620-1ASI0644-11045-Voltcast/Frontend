@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/dialogs.dart';
@@ -11,6 +10,7 @@ import '../../../core/widgets/screen_header.dart';
 import '../../auth/presentation/auth_controller.dart';
 import '../data/component.dart';
 import 'cell_actions.dart' show LoadErrorView;
+import 'cell_screen.dart' show FreeComponentScreen;
 import 'component_actions.dart';
 import 'inventory_controller.dart';
 import 'component_rotable_bar.dart';
@@ -42,25 +42,9 @@ class _StorageScreenState extends State<StorageScreen> {
       eyebrow: 'Ánodos y cátodos',
       title: 'Inventario',
       onLogout: auth?.logout,
-      action: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            tooltip: 'Intercambiar entre celdas',
-            onPressed: inventory.hasLoaded ? () => context.push('/swap') : null,
-            icon: const Icon(Icons.swap_horiz),
-            style: IconButton.styleFrom(
-              backgroundColor: Colors.white.withValues(alpha: 0.16),
-              foregroundColor: Colors.white,
-              fixedSize: const Size.square(46),
-            ),
-          ),
-          const SizedBox(width: 8),
-          HeaderAction(
-            label: 'Nuevo',
-            onPressed: inventory.hasLoaded ? () => showComponentSheet(context, inventory) : null,
-          ),
-        ],
+      action: HeaderAction(
+        label: 'Nuevo',
+        onPressed: inventory.hasLoaded ? () => showComponentSheet(context, inventory) : null,
       ),
       bottom: inventory.hasLoaded
           ? StatRow(
@@ -238,128 +222,129 @@ class _StoredComponent extends StatelessWidget {
     final inventory = context.read<InventoryController>();
     final c = component;
 
-    return AppCard(
-      padding: const EdgeInsets.all(10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Container(
-              clipBehavior: Clip.antiAlias,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(18),
-                gradient: const LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [Color(0xFFEFF4FC), Color(0xFFDCE6F5)],
+    // A free one opens its detail; a disabled one only offers its two buttons.
+    return GestureDetector(
+      onTap: c.isFree && !busy
+          ? () =>
+                Navigator.of(context)
+                    .push(MaterialPageRoute<void>(builder: (_) => FreeComponentScreen(componentId: c.id)))
+          : null,
+      child: AppCard(
+        padding: const EdgeInsets.all(10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Container(
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(18),
+                  gradient: const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0xFFEFF4FC), Color(0xFFDCE6F5)],
+                  ),
+                ),
+                child: Stack(
+                  children: [
+                    // Faded when disabled; its actions stay at full strength.
+                    Positioned.fill(
+                      child: Opacity(
+                        opacity: c.isActive ? 1 : 0.55,
+                        child: RotatableBar(key: ValueKey('storage-bar-${c.id}'), type: c.type, serial: c.serialCode),
+                      ),
+                    ),
+                    Positioned(
+                      top: 8,
+                      left: 8,
+                      child: c.isActive
+                          ? StatusPill.of('Libre', StatusPill.green)
+                          : StatusPill.of('Deshabilitado', StatusPill.grey),
+                    ),
+                  ],
                 ),
               ),
-              child: Stack(
+            ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Faded when disabled; its actions stay at full strength.
-                  Positioned.fill(
-                    child: Opacity(
-                      opacity: c.isActive ? 1 : 0.55,
-                      child: RotatableBar(key: ValueKey('storage-bar-${c.id}'), type: c.type, serial: c.serialCode),
+                  Text(
+                    c.type.label.toUpperCase(),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.8,
+                      color: AppColors.muted,
                     ),
                   ),
-                  Positioned(
-                    top: 8,
-                    left: 8,
-                    child: c.isActive
-                        ? StatusPill.of('Libre', StatusPill.green)
-                        : StatusPill.of('Deshabilitado', StatusPill.grey),
+                  Text(
+                    c.serialCode,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.ink),
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: c.isActive
+                        ? [
+                            CircleAction(
+                              tooltip: 'Editar componente',
+                              icon: Icons.edit_outlined,
+                              size: 36,
+                              onPressed: busy ? null : () => showComponentSheet(context, inventory, component: c),
+                            ),
+                            const SizedBox(width: 8),
+                            CircleAction(
+                              tooltip: 'Deshabilitar componente',
+                              icon: Icons.delete_outline,
+                              color: AppColors.error,
+                              background: AppColors.errorSoft,
+                              size: 36,
+                              onPressed: busy ? null : () => disableComponentWithChecks(context, c),
+                            ),
+                          ]
+                        : [
+                            Expanded(
+                              child: SizedBox(
+                                height: 36,
+                                child: TextButton(
+                                  onPressed: busy
+                                      ? null
+                                      : () => runAction(
+                                          context,
+                                          () => inventory.reactivateComponent(c),
+                                          '${c.serialCode} reactivado.',
+                                        ),
+                                  style: TextButton.styleFrom(
+                                    backgroundColor: AppColors.blueSoft,
+                                    foregroundColor: AppColors.blue,
+                                    shape: const StadiumBorder(),
+                                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                                    textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                                  ),
+                                  child: const Text('Reactivar', maxLines: 1, overflow: TextOverflow.ellipsis),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            CircleAction(
+                              tooltip: 'Eliminar componente',
+                              icon: Icons.delete_outline,
+                              color: AppColors.error,
+                              background: AppColors.errorSoft,
+                              size: 36,
+                              onPressed: busy ? null : () => _remove(context, inventory),
+                            ),
+                          ],
                   ),
                 ],
               ),
             ),
-          ),
-          const SizedBox(height: 10),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  c.type.label.toUpperCase(),
-                  style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.8,
-                    color: AppColors.muted,
-                  ),
-                ),
-                Text(
-                  c.serialCode,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppColors.ink),
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: c.isActive
-                      ? [
-                          CircleAction(
-                            tooltip: 'Editar componente',
-                            icon: Icons.edit_outlined,
-                            size: 36,
-                            onPressed: busy ? null : () => showComponentSheet(context, inventory, component: c),
-                          ),
-                          const SizedBox(width: 8),
-                          CircleAction(
-                            tooltip: 'Asignar a una celda',
-                            icon: Icons.swap_horiz,
-                            size: 36,
-                            onPressed: busy ? null : () => showAssignSheet(context, inventory, c),
-                          ),
-                          const SizedBox(width: 8),
-                          CircleAction(
-                            tooltip: 'Deshabilitar componente',
-                            icon: Icons.delete_outline,
-                            color: AppColors.error,
-                            background: AppColors.errorSoft,
-                            size: 36,
-                            onPressed: busy ? null : () => disableComponentWithChecks(context, c),
-                          ),
-                        ]
-                      : [
-                          Expanded(
-                            child: SizedBox(
-                              height: 36,
-                              child: TextButton(
-                                onPressed: busy
-                                    ? null
-                                    : () => runAction(
-                                        context,
-                                        () => inventory.reactivateComponent(c),
-                                        '${c.serialCode} reactivado.',
-                                      ),
-                                style: TextButton.styleFrom(
-                                  backgroundColor: AppColors.blueSoft,
-                                  foregroundColor: AppColors.blue,
-                                  shape: const StadiumBorder(),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                                  textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
-                                ),
-                                child: const Text('Reactivar', maxLines: 1, overflow: TextOverflow.ellipsis),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          CircleAction(
-                            tooltip: 'Eliminar componente',
-                            icon: Icons.delete_outline,
-                            color: AppColors.error,
-                            background: AppColors.errorSoft,
-                            size: 36,
-                            onPressed: busy ? null : () => _remove(context, inventory),
-                          ),
-                        ],
-                ),
-              ],
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
