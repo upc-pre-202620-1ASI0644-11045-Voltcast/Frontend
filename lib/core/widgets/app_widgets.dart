@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'app_header.dart';
 
-/// One figure of a stats row: small caps label above a big number.
+/// One figure of a stats row: big number above its label.
 class StatTile extends StatelessWidget {
   const StatTile({super.key, required this.label, required this.value, this.color = AppColors.ink});
 
@@ -13,32 +13,28 @@ class StatTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AppCard(
-      padding: const EdgeInsets.all(14),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 6),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            label.toUpperCase(),
-            maxLines: 2,
-            // Narrow tracking so "CON COMPONENTES" wraps to two lines instead
-            // of being cut with "…" on ~360-414px screens.
-            style: const TextStyle(
-              fontSize: 10.5,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.5,
-              height: 1.3,
-              color: AppColors.muted,
-            ),
+            '$value',
+            style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: color),
           ),
-          const SizedBox(height: 8),
-          Text('$value', style: TextStyle(fontSize: 30, fontWeight: FontWeight.w700, color: color)),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 12, color: AppColors.muted),
+          ),
         ],
       ),
     );
   }
 }
 
+/// The figures of a screen on one white card, split by thin dividers.
 class StatRow extends StatelessWidget {
   const StatRow({super.key, required this.tiles});
 
@@ -46,15 +42,105 @@ class StatRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return IntrinsicHeight(
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          for (var i = 0; i < tiles.length; i++) ...[
-            if (i > 0) const SizedBox(width: 10),
-            Expanded(child: tiles[i]),
+    return Container(
+      decoration: BoxDecoration(color: Colors.white, borderRadius: AppRadius.large, boxShadow: AppCard.shadow),
+      child: IntrinsicHeight(
+        child: Row(
+          children: [
+            for (var i = 0; i < tiles.length; i++) ...[
+              if (i > 0) const VerticalDivider(width: 1, indent: 18, endIndent: 18, color: AppColors.border),
+              Expanded(child: tiles[i]),
+            ],
           ],
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Rounded white search box ("Buscar por código…").
+class SearchField extends StatelessWidget {
+  const SearchField({super.key, required this.onChanged, this.hint = 'Buscar por código…'});
+
+  final ValueChanged<String> onChanged;
+  final String hint;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      onChanged: onChanged,
+      textInputAction: TextInputAction.search,
+      style: const TextStyle(fontSize: 15, color: AppColors.ink),
+      decoration: InputDecoration(
+        hintText: hint,
+        hintStyle: const TextStyle(fontSize: 15, color: AppColors.muted),
+        prefixIcon: const Icon(Icons.search, color: AppColors.muted, size: 20),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(vertical: 14),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(18), borderSide: BorderSide.none),
+      ),
+    );
+  }
+}
+
+/// Bold section title with an optional muted note on the right ("150 celdas · desliza →").
+class SectionTitle extends StatelessWidget {
+  const SectionTitle(this.title, {super.key, this.trailing});
+
+  final String title;
+  final String? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: AppColors.ink),
+          ),
+        ),
+        if (trailing != null) Text(trailing!, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
+      ],
+    );
+  }
+}
+
+/// Round icon button on a tinted disc (edit, code, delete).
+class CircleAction extends StatelessWidget {
+  const CircleAction({
+    super.key,
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+    this.color = AppColors.ink,
+    this.background = AppColors.field,
+    this.size = 40,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final Color color;
+  final Color background;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox.square(
+      dimension: size,
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        padding: EdgeInsets.zero,
+        icon: Icon(icon, size: size * 0.48),
+        style: IconButton.styleFrom(
+          backgroundColor: background,
+          foregroundColor: color,
+          disabledBackgroundColor: AppColors.disabledBg,
+          disabledForegroundColor: AppColors.disabledFg,
+        ),
       ),
     );
   }
@@ -62,11 +148,18 @@ class StatRow extends StatelessWidget {
 
 /// Large outlined navigation button ("Componentes", "Códigos").
 class NavButton extends StatelessWidget {
-  const NavButton({super.key, required this.label, required this.onPressed, this.icon});
+  const NavButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.icon,
+    this.color = const Color(0xFF374151),
+  });
 
   final String label;
   final VoidCallback? onPressed;
   final IconData? icon;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
@@ -77,10 +170,10 @@ class NavButton extends StatelessWidget {
         icon: icon == null ? const SizedBox.shrink() : Icon(icon, size: 20),
         label: Text(label),
         style: OutlinedButton.styleFrom(
-          shape: const RoundedRectangleBorder(),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.medium),
           backgroundColor: Colors.white,
-          side: const BorderSide(color: Color(0xFFF0F1F4)),
-          foregroundColor: const Color(0xFF374151),
+          side: BorderSide(color: color.withValues(alpha: 0.35)),
+          foregroundColor: color,
           textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
         ),
       ),
@@ -90,12 +183,7 @@ class NavButton extends StatelessWidget {
 
 /// Small outlined action ("Editar", "Asignar", "Deshabilitar").
 class SmallActionButton extends StatelessWidget {
-  const SmallActionButton({
-    super.key,
-    required this.label,
-    required this.onPressed,
-    this.color = AppColors.blue,
-  });
+  const SmallActionButton({super.key, required this.label, required this.onPressed, this.color = AppColors.blue});
 
   final String label;
   final VoidCallback? onPressed;
@@ -108,7 +196,7 @@ class SmallActionButton extends StatelessWidget {
       child: OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
-          shape: const RoundedRectangleBorder(),
+          shape: RoundedRectangleBorder(borderRadius: AppRadius.small),
           side: BorderSide(color: onPressed == null ? AppColors.border : color.withValues(alpha: 0.35)),
           foregroundColor: color,
           disabledForegroundColor: AppColors.disabledFg,
@@ -141,8 +229,22 @@ class StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      color: background,
-      child: Text(text, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: color)),
+      decoration: BoxDecoration(color: background, borderRadius: BorderRadius.circular(20)),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            text,
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: color),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -166,8 +268,10 @@ class InventoryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: Colors.white,
+        borderRadius: AppRadius.large,
         border: Border.all(color: const Color(0xFFF0F1F4)),
       ),
       child: Column(
@@ -192,10 +296,7 @@ class InventoryCard extends StatelessWidget {
               ],
             ),
           ),
-          for (final child in children) ...[
-            const Divider(height: 1, color: Color(0xFFF0F1F4)),
-            child,
-          ],
+          for (final child in children) ...[const Divider(height: 1, color: Color(0xFFF0F1F4)), child],
         ],
       ),
     );
@@ -224,9 +325,9 @@ class AppDropdown<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     OutlineInputBorder border(Color color, [double width = 1]) => OutlineInputBorder(
-          borderRadius: BorderRadius.zero,
-          borderSide: BorderSide(color: color, width: width),
-        );
+      borderRadius: AppRadius.medium,
+      borderSide: BorderSide(color: color, width: width),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -247,7 +348,7 @@ class AppDropdown<T> extends StatelessWidget {
               ),
           ],
           onChanged: onChanged,
-          borderRadius: BorderRadius.zero,
+          borderRadius: AppRadius.medium,
           style: const TextStyle(fontSize: 17, color: AppColors.ink),
           decoration: InputDecoration(
             contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
@@ -336,7 +437,7 @@ class SheetFrame extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(24, 28, 24, 24),
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 460),
@@ -353,94 +454,6 @@ class SheetFrame extends StatelessWidget {
               ],
             ),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Navigation card on the home screens, with an optional red counter badge.
-class ShortcutTile extends StatelessWidget {
-  const ShortcutTile({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.description,
-    required this.onTap,
-    this.badge,
-    this.badgeText,
-  });
-
-  final IconData icon;
-  final String label;
-  final String description;
-  final VoidCallback onTap;
-
-  /// Red counter on the icon; hidden when null or zero.
-  final int? badge;
-
-  /// Replaces [description] (in red) when the badge is shown.
-  final String? badgeText;
-
-  @override
-  Widget build(BuildContext context) {
-    final count = badge ?? 0;
-    return InkWell(
-      onTap: onTap,
-      child: AppCard(
-        padding: const EdgeInsets.all(20),
-        child: Row(
-          children: [
-            Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Container(
-                  width: 56,
-                  height: 56,
-                  color: const Color(0xFFEEF3FF),
-                  child: Icon(icon, color: AppColors.blue, size: 28),
-                ),
-                if (count > 0)
-                  Positioned(
-                    top: -8,
-                    right: -8,
-                    child: Container(
-                      constraints: const BoxConstraints(minWidth: 22, minHeight: 22),
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      alignment: Alignment.center,
-                      decoration: const BoxDecoration(color: AppColors.error, shape: BoxShape.circle),
-                      child: Text(
-                        '$count',
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: Colors.white),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(width: 18),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700, color: AppColors.ink),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    count > 0 && badgeText != null ? badgeText! : description,
-                    style: TextStyle(
-                      fontSize: 14,
-                      height: 1.4,
-                      color: count > 0 && badgeText != null ? AppColors.error : AppColors.muted,
-                      fontWeight: count > 0 && badgeText != null ? FontWeight.w600 : FontWeight.w400,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Icon(Icons.chevron_right, color: AppColors.muted),
-          ],
         ),
       ),
     );
