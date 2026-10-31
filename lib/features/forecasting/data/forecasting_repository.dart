@@ -3,6 +3,7 @@ import '../../../core/network/api_client.dart';
 import 'alert_rule.dart';
 import 'evaluation.dart';
 import 'evaluation_cache.dart';
+import 'evaluation_series.dart';
 import 'forecast.dart';
 import 'forecast_cache.dart';
 
@@ -79,6 +80,17 @@ class ForecastingRepository {
     return result;
   }
 
+  /// Mean error of every validation day, in one call. It does not depend on the
+  /// day the table shows. 400 for a date outside the range (the app sends none).
+  Future<EvaluationSeries> evaluationSeries() async {
+    final series = EvaluationSeries.fromJson(
+      await _api.get('/forecasts/evaluation/series', auth: true)
+          as Map<String, dynamic>,
+    );
+    await evaluationCache.saveSeries(series);
+    return series;
+  }
+
   /// 202; 400 when one is already running or the dataset is not ready.
   Future<void> startTraining(int datasetId) =>
       _api.post('/trainings', body: {'dataset_id': datasetId}, auth: true);
@@ -92,13 +104,13 @@ class ForecastingRepository {
         .toList();
   }
 
-  /// A new value replaces the previous one of the same scope. Supervisor only (403 otherwise).
-  Future<AlertRule> setLimit(double maxVoltage, {int? cellId}) async =>
-      AlertRule.fromJson(
-        await _api.post(
-          '/alert-rules',
-          body: {'max_voltage': maxVoltage, 'cell_id': ?cellId},
-          auth: true,
-        ) as Map<String, dynamic>,
-      );
+  /// Sets the general limit; a new value replaces the previous one. Supervisor only
+  /// (403 otherwise). The API also takes a `cell_id`, which the app no longer sends.
+  Future<AlertRule> setLimit(double maxVoltage) async => AlertRule.fromJson(
+    await _api.post(
+      '/alert-rules',
+      body: {'max_voltage': maxVoltage},
+      auth: true,
+    ) as Map<String, dynamic>,
+  );
 }

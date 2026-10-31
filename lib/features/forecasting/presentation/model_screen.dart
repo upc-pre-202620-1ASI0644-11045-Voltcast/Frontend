@@ -10,21 +10,22 @@ import '../../../core/widgets/app_header.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../core/widgets/auth_visuals.dart';
 import '../../../core/widgets/load_error.dart';
-import '../../../core/widgets/screen_header.dart';
-import '../../auth/presentation/auth_controller.dart';
+import '../../../core/widgets/page_header.dart';
 import '../data/evaluation.dart';
 import '../data/forecast.dart';
 import '../data/forecasting_repository.dart';
+import 'error_series_chart.dart';
 import 'forecast_widgets.dart';
 import 'model_controller.dart';
 
 /// Writes [rows] to an Excel file called [fileName] and offers it to the user.
-typedef EvaluationExporter =
-    Future<void> Function(String fileName, List<EvaluationItem> rows);
+typedef EvaluationExporter = Future<void> Function(
+  String fileName,
+  List<EvaluationItem> rows,
+);
 
 /// Tab "Modelo": how far the forecast is from what was measured, in a sentence,
-/// a collapsed technical detail and a table by cell; plus the way into files and
-/// (supervisors) the voltage limit.
+/// and a table by cell; plus the way into the files.
 class ModelScreen extends StatelessWidget {
   /// The Excel button is shown only when an [export] is given.
   const ModelScreen({super.key, this.export});
@@ -91,8 +92,6 @@ class _ModelViewState extends State<_ModelView> {
   @override
   Widget build(BuildContext context) {
     final c = context.watch<ModelController>();
-    final auth = Provider.of<AuthController?>(context, listen: false);
-    final model = c.metrics?.model;
 
     return Scaffold(
       backgroundColor: AppColors.surface,
@@ -101,17 +100,16 @@ class _ModelViewState extends State<_ModelView> {
         onRefresh: c.load,
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: EdgeInsets.zero,
+          padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top),
           children: [
-            BrandHeader(
-              eyebrow: model == null
-                  ? 'Precisión del modelo'
-                  : '${model.name} · versión ${model.version}',
-              title: 'Modelo',
-              onLogout: auth?.logout,
+            PageHeader(
+              eyebrow: 'Validación del pronóstico',
+              title: 'Precisión del modelo',
+              onBack: () =>
+                  context.canPop() ? context.pop() : context.go('/settings'),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 110),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -124,22 +122,6 @@ class _ModelViewState extends State<_ModelView> {
                     const SizedBox(height: 14),
                   ],
                   ..._accuracy(c),
-                  const SizedBox(height: 24),
-                  const SectionTitle('Gestión'),
-                  const SizedBox(height: 12),
-                  _ManageTile(
-                    icon: Icons.table_chart_outlined,
-                    title: 'Archivos históricos',
-                    subtitle: 'Sube y revisa los datos de voltaje',
-                    onTap: () => context.push('/datasets'),
-                  ),
-                  if (auth?.user?.isAdmin == true)
-                    _ManageTile(
-                      icon: Icons.bolt,
-                      title: 'Límite de voltaje',
-                      subtitle: 'Voltaje máximo permitido',
-                      onTap: () => context.push('/limit'),
-                    ),
                 ],
               ),
             ),
@@ -147,6 +129,13 @@ class _ModelViewState extends State<_ModelView> {
         ),
       ),
     );
+  }
+
+  /// "los últimos 60 días", from the validation range the API reports.
+  String _span(ModelController c) {
+    final r = c.availableRange;
+    if (r == null) return 'los días de validación';
+    return 'los últimos ${r.to.difference(r.from).inDays + 1} días';
   }
 
   List<Widget> _accuracy(ModelController c) {
@@ -173,8 +162,7 @@ class _ModelViewState extends State<_ModelView> {
           child: EmptyState(
             icon: Icons.cloud_off_outlined,
             title: 'No hay datos de precisión guardados',
-            message:
-                'Conéctate para consultarlos; quedarán guardados en este dispositivo.',
+            message: 'Conéctate para consultarlos; quedarán guardados en este dispositivo.',
           ),
         ),
       ];
@@ -184,20 +172,27 @@ class _ModelViewState extends State<_ModelView> {
     }
     final m = c.metrics;
     return [
-      const SectionTitle('Precisión del modelo'),
-      const SizedBox(height: 12),
+      const Align(
+        alignment: Alignment.centerLeft,
+        child: StatusPill(
+          'Modelo disponible',
+          background: Color(0xFFE8F8EE),
+          color: AppColors.success,
+        ),
+      ),
+      const SizedBox(height: 14),
       _Summary(m),
-      if (m?.mape != null) ...[
-        const SizedBox(height: 10),
-        _TechnicalDetail(m!),
-      ],
       const SizedBox(height: 24),
       const SectionTitle('Pronóstico frente a lo medido'),
       const SizedBox(height: 8),
-      const Text(
-        'Comparación de los últimos 60 días: lo que el modelo pronosticó frente a '
+      Text(
+        'Comparación de ${_span(c)}: lo que el modelo pronosticó frente a '
         'lo que realmente se midió. Son días que el modelo no usó para entrenar.',
-        style: TextStyle(fontSize: 13, height: 1.4, color: AppColors.muted),
+        style: const TextStyle(
+          fontSize: 13,
+          height: 1.4,
+          color: AppColors.muted,
+        ),
       ),
       const SizedBox(height: 12),
       _Comparison(
@@ -210,7 +205,7 @@ class _ModelViewState extends State<_ModelView> {
   }
 }
 
-/// "En promedio, el pronóstico se desvía 0,77 % (0,024 V)".
+/// "Error del pronóstico": the mean error in volts, big, with what it means.
 class _Summary extends StatelessWidget {
   const _Summary(this.metrics);
 
@@ -229,28 +224,43 @@ class _Summary extends StatelessWidget {
         ),
       );
     }
-    const base = TextStyle(fontSize: 18, height: 1.35, color: AppColors.ink);
-    const strong = TextStyle(fontWeight: FontWeight.w800);
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text.rich(
-            TextSpan(
-              style: base,
-              children: [
-                const TextSpan(text: 'En promedio, el pronóstico se desvía '),
-                TextSpan(text: '${decimal(m.mape!, 2)} %', style: strong),
-                const TextSpan(text: ' ('),
-                TextSpan(text: '${decimal(m.mae!, 3)} V', style: strong),
-                const TextSpan(text: ')'),
-              ],
+          const Text(
+            'Error del pronóstico',
+            style: TextStyle(
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+              color: AppColors.ink,
             ),
           ),
           const SizedBox(height: 8),
+          Text.rich(
+            TextSpan(
+              style: const TextStyle(
+                fontSize: 48,
+                fontWeight: FontWeight.w800,
+                color: AppColors.blue,
+              ),
+              children: [
+                TextSpan(text: decimal(m.mae!, 3)),
+                const TextSpan(
+                  text: ' V',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.muted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
           const Text(
-            'Calculado sobre los últimos días de los datos, que el modelo no usó para entrenar.',
-            style: TextStyle(fontSize: 13, height: 1.4, color: AppColors.muted),
+            'Diferencia promedio entre el voltaje real y el pronosticado',
+            style: TextStyle(fontSize: 14, height: 1.4, color: AppColors.muted),
           ),
         ],
       ),
@@ -258,113 +268,59 @@ class _Summary extends StatelessWidget {
   }
 }
 
-/// The five figures that used to be the screen, collapsed. ExpansionTile is a
-/// focusable list tile that announces whether it is expanded.
-class _TechnicalDetail extends StatelessWidget {
-  const _TechnicalDetail(this.m);
+/// The chart of the mean error per day, in the card above the date button.
+class _SeriesView extends StatelessWidget {
+  const _SeriesView({required this.controller});
 
-  final ModelMetrics m;
+  final ModelController controller;
 
   @override
   Widget build(BuildContext context) {
-    String fmt(double? v, int digits) => v == null ? '—' : decimal(v, digits);
-    return Material(
-      color: Colors.white,
-      borderRadius: AppRadius.large,
-      clipBehavior: Clip.antiAlias,
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          title: const Text(
-            'Ver detalle técnico',
+    final c = controller;
+    final s = c.series;
+    const muted = TextStyle(fontSize: 13, color: AppColors.muted);
+    final Widget body;
+    if (s == null) {
+      if (c.seriesError == null) return const SizedBox.shrink();
+      body = Row(
+        children: [
+          Expanded(child: Text(c.seriesError!, style: muted)),
+          TextButton(onPressed: c.retrySeries, child: const Text('Reintentar')),
+        ],
+      );
+    } else if (s.items.isEmpty) {
+      body = Text(s.message ?? 'Aún no hay datos para graficar.', style: muted);
+    } else {
+      body = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Error medio por día',
             style: TextStyle(
               fontSize: 15,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w800,
               color: AppColors.ink,
             ),
           ),
-          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
-          expandedCrossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _TechRow(
-              'MSE',
-              '${fmt(m.mse, 4)} V²',
-              'Promedio de los errores al cuadrado. Castiga más los errores grandes.',
-            ),
-            _TechRow(
-              'RMSE',
-              '${fmt(m.rmse, 3)} V',
-              'Raíz del MSE: un error típico, en voltios.',
-            ),
-            _TechRow(
-              'MAE',
-              '${fmt(m.mae, 3)} V',
-              'Promedio del error sin signo, en voltios.',
-            ),
-            _TechRow(
-              'MAPE',
-              '${fmt(m.mape, 2)} %',
-              'Error promedio como porcentaje del voltaje real.',
-            ),
-            _TechRow(
-              'R²',
-              fmt(m.r2, 3),
-              'Qué parte de la variación del voltaje explica el modelo; 1 es perfecto.',
-            ),
-          ],
-        ),
-      ),
+          const Text('Toca un día para ver sus celdas', style: muted),
+          const SizedBox(height: 10),
+          ErrorSeriesChart(
+            points: s.items,
+            selected: c.date,
+            isSelectable: c.isSelectable,
+            onSelect: c.setDate,
+          ),
+        ],
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: AppCard(child: body),
     );
   }
 }
 
-class _TechRow extends StatelessWidget {
-  const _TechRow(this.name, this.value, this.help);
-
-  final String name;
-  final String value;
-  final String help;
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      label: '$name: $value. $help',
-      excludeSemantics: true,
-      child: Padding(
-        padding: const EdgeInsets.only(top: 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text(name, style: AppTheme.label),
-                const Spacer(),
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.ink,
-                  ),
-                ),
-              ],
-            ),
-            Text(
-              help,
-              style: const TextStyle(
-                fontSize: 12.5,
-                height: 1.35,
-                color: AppColors.muted,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Date and order selectors, the summary lines, the table and the Excel button.
+/// Date selector, the summary lines, the table and the Excel button.
 class _Comparison extends StatelessWidget {
   const _Comparison({
     required this.controller,
@@ -385,6 +341,7 @@ class _Comparison extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _SeriesView(controller: c),
         Align(
           alignment: Alignment.centerLeft,
           child: OutlinedButton.icon(
@@ -396,16 +353,6 @@ class _Comparison extends StatelessWidget {
                   : 'Fecha: ${formatShortDate(c.date!)}',
             ),
           ),
-        ),
-        const SizedBox(height: 10),
-        SegmentedButton<String>(
-          showSelectedIcon: false,
-          segments: const [
-            ButtonSegment(value: 'worst', label: Text('Mayor error')),
-            ButtonSegment(value: 'best', label: Text('Menor error')),
-          ],
-          selected: {c.order},
-          onSelectionChanged: (s) => c.setOrder(s.first),
         ),
         const SizedBox(height: 14),
         if (c.evaluationError != null) ...[
@@ -460,10 +407,15 @@ class _Comparison extends StatelessWidget {
             ),
           const SizedBox(height: 10),
           if (c.evaluating) const LinearProgressIndicator(minHeight: 3),
-          // The previous table stays (dimmed) while the next one loads.
+          // The previous cards stay (dimmed) while the next day loads.
           Opacity(
             opacity: c.evaluating ? 0.5 : 1,
-            child: _Table(result: e, order: c.order),
+            child: Column(
+              children: [
+                for (final i in e.items)
+                  _CellCard(item: i, mean: e.meanErrorPct),
+              ],
+            ),
           ),
         ],
         if (onExport != null) ...[
@@ -488,66 +440,109 @@ class _Comparison extends StatelessWidget {
   }
 }
 
-// Column weights of the table; the same ones for the header and every row so
-// it fits a phone without sideways scrolling.
-const _flex = [2, 3, 3, 3, 3];
+/// How far above the day's mean error a cell must be to be flagged: past
+/// [elevated] times the mean it is amber, past [high] times it is red. The
+/// API gives no limit of its own, so the day's mean is the only reference.
+const severityBands = (elevated: 1.0, high: 2.0);
 
-Widget _cell(int i, Widget child, {Alignment at = Alignment.centerRight}) =>
-    Expanded(
-      flex: _flex[i],
-      child: Align(alignment: at, child: child),
-    );
+enum Severity {
+  normal(AppColors.border, AppColors.ink),
+  elevated(AppColors.amber, AppColors.amber),
+  high(AppColors.error, AppColors.error);
 
-class _Table extends StatelessWidget {
-  const _Table({required this.result, required this.order});
+  const Severity(this.bar, this.text);
 
-  final EvaluationResult result;
-  final String order;
+  final Color bar, text;
+}
+
+Severity severityOf(double errorPct, double? mean) {
+  if (mean == null || mean <= 0) return Severity.normal;
+  final ratio = errorPct / mean;
+  if (ratio >= severityBands.high) return Severity.high;
+  if (ratio > severityBands.elevated) return Severity.elevated;
+  return Severity.normal;
+}
+
+/// One cell of the day: name and error up front, the three volts below.
+class _CellCard extends StatelessWidget {
+  const _CellCard({required this.item, required this.mean});
+
+  final EvaluationItem item;
+  final double? mean;
 
   @override
   Widget build(BuildContext context) {
-    final mean = result.meanErrorPct;
-    const head = TextStyle(
-      fontSize: 11.5,
-      height: 1.2,
-      fontWeight: FontWeight.w700,
-      color: AppColors.muted,
-    );
-    Widget title(String text) => Text(text, style: head, textAlign: TextAlign.right);
-
-    return Material(
-      color: Colors.white,
-      borderRadius: AppRadius.large,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: Column(
-          children: [
-            Semantics(
-              header: true,
+    final i = item;
+    final severity = severityOf(i.errorPct, mean);
+    final note = switch (severity) {
+      Severity.normal => '',
+      Severity.elevated => ', por encima del promedio',
+      Severity.high => ', muy por encima del promedio',
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Semantics(
+        label:
+            'Celda ${i.cellName}: error ${decimal(i.errorPct, 2)} por ciento$note. '
+            'Real ${decimal(i.real, 3)} voltios, pronosticado ${decimal(i.predicted, 3)} voltios, '
+            'diferencia ${decimal(i.errorV, 3)} voltios',
+        excludeSemantics: true,
+        child: ClipRRect(
+          borderRadius: AppRadius.medium,
+          child: ColoredBox(
+            color: Colors.white,
+            child: IntrinsicHeight(
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _cell(0, const Text('Celda', style: head), at: Alignment.centerLeft),
-                  _cell(1, title('Voltaje real (V)')),
-                  _cell(2, title('Voltaje pronosticado (V)')),
-                  _cell(3, title('Diferencia (V)')),
-                  _cell(
-                    4,
-                    Semantics(
-                      label: order == 'worst'
-                          ? 'Error (%), ordenado de mayor a menor'
-                          : 'Error (%), ordenado de menor a mayor',
-                      excludeSemantics: true,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
+                  SizedBox(width: 5, child: ColoredBox(color: severity.bar)),
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            order == 'worst' ? Icons.arrow_downward : Icons.arrow_upward,
-                            size: 12,
-                            color: AppColors.muted,
+                          Row(
+                            children: [
+                              Expanded(
+                                child: FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    i.cellName,
+                                    style: const TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppColors.ink,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              if (severity != Severity.normal) ...[
+                                Icon(
+                                  Icons.warning_amber_rounded,
+                                  size: 18,
+                                  color: severity.text,
+                                ),
+                                const SizedBox(width: 4),
+                              ],
+                              Text(
+                                '${decimal(i.errorPct, 2)} %',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                  color: severity.text,
+                                ),
+                              ),
+                            ],
                           ),
-                          const Flexible(
-                            child: Text('Error (%)', style: head, textAlign: TextAlign.right),
+                          const SizedBox(height: 10),
+                          Row(
+                            children: [
+                              _Stat('V. real', decimal(i.real, 3)),
+                              _Stat('Pronóstico', decimal(i.predicted, 3)),
+                              _Stat('Diferencia (V)', decimal(i.errorV, 3)),
+                            ],
                           ),
                         ],
                       ),
@@ -556,128 +551,44 @@ class _Table extends StatelessWidget {
                 ],
               ),
             ),
-            const Divider(height: 16),
-            for (final i in result.items) _Row(item: i, mean: mean),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Row extends StatelessWidget {
-  const _Row({required this.item, required this.mean});
-
-  final EvaluationItem item;
-  final double? mean;
-
-  @override
-  Widget build(BuildContext context) {
-    final i = item;
-    // A day's mean is the only reference the API gives; above it is "alto".
-    final high = mean != null && i.errorPct > mean!;
-    const body = TextStyle(fontSize: 13, color: AppColors.ink);
-    return Semantics(
-      label:
-          'Celda ${i.cellName}: real ${decimal(i.real, 3)} voltios, '
-          'pronosticado ${decimal(i.predicted, 3)} voltios, '
-          'diferencia ${decimal(i.errorV, 3)} voltios, '
-          'error ${decimal(i.errorPct, 2)} por ciento${high ? ', error alto' : ''}',
-      excludeSemantics: true,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 7),
-        child: Row(
-          children: [
-            _cell(
-              0,
-              Text(i.cellName, style: body.copyWith(fontWeight: FontWeight.w700)),
-              at: Alignment.centerLeft,
-            ),
-            _cell(1, Text(decimal(i.real, 3), style: body)),
-            _cell(2, Text(decimal(i.predicted, 3), style: body)),
-            _cell(3, Text(decimal(i.errorV, 3), style: body)),
-            _cell(
-              4,
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (high) ...[
-                    const Icon(Icons.warning_amber_rounded, size: 15, color: AppColors.error),
-                    const SizedBox(width: 2),
-                  ],
-                  Text(
-                    decimal(i.errorPct, 2),
-                    style: body.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: high ? AppColors.error : AppColors.ink,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ManageTile extends StatelessWidget {
-  const _ManageTile({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Material(
-        color: Colors.white,
-        borderRadius: AppRadius.large,
-        child: InkWell(
-          borderRadius: AppRadius.large,
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: AppColors.blueSoft,
-                  child: Icon(icon, color: AppColors.blue),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.ink,
-                        ),
-                      ),
-                      Text(
-                        subtitle,
-                        style: const TextStyle(fontSize: 13, color: AppColors.muted),
-                      ),
-                    ],
-                  ),
-                ),
-                const Icon(Icons.chevron_right, color: AppColors.muted),
-              ],
-            ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _Stat extends StatelessWidget {
+  const _Stat(this.label, this.value);
+
+  final String label, value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: AppColors.muted),
+            ),
+          ),
+          const SizedBox(height: 2),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+                color: AppColors.ink,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

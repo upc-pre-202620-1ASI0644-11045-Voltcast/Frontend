@@ -8,7 +8,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../core/widgets/auth_visuals.dart';
 import '../../../core/widgets/load_error.dart';
-import '../../../core/widgets/screen_header.dart';
+import '../../../core/widgets/page_header.dart';
 import '../data/dataset.dart';
 import 'datasets_controller.dart';
 import 'excel_picker.dart';
@@ -29,7 +29,17 @@ StatusPill datasetPill(DatasetStatus status) => switch (status) {
 };
 
 void _back(BuildContext context) =>
-    context.canPop() ? context.pop() : context.go('/model');
+    context.canPop() ? context.pop() : context.go('/settings');
+
+enum _Filter {
+  all('Todos'),
+  ready('Listos'),
+  failed('Con error');
+
+  const _Filter(this.label);
+
+  final String label;
+}
 
 /// Uploaded historical files, newest first, with the upload button.
 class DatasetsScreen extends StatefulWidget {
@@ -43,6 +53,8 @@ class DatasetsScreen extends StatefulWidget {
 
 class _DatasetsScreenState extends State<DatasetsScreen> {
   bool _uploading = false;
+  String _query = '';
+  _Filter _filter = _Filter.all;
 
   /// Why the last upload was refused; the screen stays where it is.
   String? _uploadError;
@@ -56,6 +68,7 @@ class _DatasetsScreenState extends State<DatasetsScreen> {
 
   Future<void> _upload() async {
     final controller = context.read<DatasetsController>();
+    final messenger = ScaffoldMessenger.of(context);
     final ready = controller.items.where((d) => d.isReady).toList();
     // Asked before the picker: a file may complement one that is already ready.
     final choice = ready.isEmpty
@@ -64,6 +77,15 @@ class _DatasetsScreenState extends State<DatasetsScreen> {
     if (choice == null || !mounted) return;
     final file = await widget.pick();
     if (file == null) return;
+    final lower = file.name.toLowerCase();
+    if (!lower.endsWith('.xlsx') && !lower.endsWith('.xlsm')) {
+      // The picker already filters, but a drag-and-drop or another picker may not.
+      setState(
+        () => _uploadError =
+            'El formato no es compatible. Sube un archivo de Excel (.xlsx o .xlsm).',
+      );
+      return;
+    }
     setState(() {
       _uploading = true;
       _uploadError = null;
@@ -73,6 +95,11 @@ class _DatasetsScreenState extends State<DatasetsScreen> {
         file.name,
         file.bytes,
         baseDatasetId: choice.base,
+      );
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('«${file.name}» se subió correctamente y se está procesando.'),
+        ),
       );
     } on ApiException catch (e) {
       _uploadError = e.message;
@@ -89,13 +116,36 @@ class _DatasetsScreenState extends State<DatasetsScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            ScreenHeader(
+            PageHeader(
+              eyebrow: 'Biblioteca de datos',
               title: 'Archivos históricos',
-              subtitle: '.xlsx o .xlsm · máx. 100 MB',
               onBack: () => _back(context),
-              action: HeaderAction(
-                label: 'Subir archivo',
-                onPressed: _uploading || c.trainingRunning ? null : _upload,
+              trailing: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${c.items.length} ${c.items.length == 1 ? 'archivo' : 'archivos'} · Excel',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppColors.muted,
+                      ),
+                    ),
+                  ),
+                  FilledButton.icon(
+                    onPressed: _uploading || c.trainingRunning ? null : _upload,
+                    icon: const Icon(Icons.add, size: 20),
+                    label: const Text('Subir Excel'),
+                    style: FilledButton.styleFrom(
+                      shape: const StadiumBorder(),
+                      minimumSize: const Size(0, 46),
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      textStyle: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
             if (_uploading) const LinearProgressIndicator(minHeight: 3),
@@ -115,6 +165,15 @@ class _DatasetsScreenState extends State<DatasetsScreen> {
               onRetry: c.load,
             );
     }
+    final shown = c.items.where((d) {
+      final matches = switch (_filter) {
+        _Filter.all => true,
+        _Filter.ready => d.isReady,
+        _Filter.failed => d.status == DatasetStatus.failed,
+      };
+      return matches &&
+          d.filename.toLowerCase().contains(_query.trim().toLowerCase());
+    }).toList();
     return RefreshIndicator(
       onRefresh: c.load,
       child: ListView(
@@ -126,8 +185,7 @@ class _DatasetsScreenState extends State<DatasetsScreen> {
               borderRadius: AppRadius.medium,
               child: const NoticeBanner(
                 icon: Icons.model_training,
-                text:
-                    'Hay un entrenamiento en curso; espera a que termine para subir un archivo.',
+                text: 'Hay un entrenamiento en curso; espera a que termine para subir un archivo.',
               ),
             ),
             const SizedBox(height: 12),
@@ -149,7 +207,44 @@ class _DatasetsScreenState extends State<DatasetsScreen> {
                 message: 'Sube un archivo de Excel con las lecturas de voltaje de las celdas.',
               ),
             ),
-          for (final d in c.items) _DatasetCard(dataset: d),
+          if (c.items.isNotEmpty) ...[
+            SearchField(
+              hint: 'Buscar archivo…',
+              onChanged: (v) => setState(() => _query = v),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              children: [
+                for (final f in _Filter.values)
+                  ChoiceChip(
+                    label: Text(f.label),
+                    selected: _filter == f,
+                    onSelected: (_) => setState(() => _filter = f),
+                    showCheckmark: false,
+                    shape: const StadiumBorder(side: BorderSide.none),
+                    backgroundColor: AppColors.field,
+                    selectedColor: AppColors.blue,
+                    labelStyle: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: _filter == f ? Colors.white : AppColors.ink,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            if (shown.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 32),
+                child: Center(
+                  child: Text(
+                    'Ningún archivo coincide.',
+                    style: TextStyle(color: AppColors.muted),
+                  ),
+                ),
+              ),
+          ],
+          for (final d in shown) _DatasetCard(dataset: d),
         ],
       ),
     );
@@ -218,8 +313,10 @@ class _DatasetCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final d = dataset;
+    final s = d.summary;
+    const small = TextStyle(fontSize: 13, color: AppColors.muted);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.only(bottom: 14),
       child: Material(
         color: Colors.white,
         borderRadius: AppRadius.large,
@@ -227,63 +324,76 @@ class _DatasetCard extends StatelessWidget {
           borderRadius: AppRadius.large,
           onTap: () => context.push('/datasets/${d.id}'),
           child: Padding(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(
-                      Icons.table_chart_outlined,
-                      color: AppColors.blue,
-                    ),
-                    const SizedBox(width: 10),
+                    const ExcelIcon(size: 64),
+                    const SizedBox(width: 14),
                     Expanded(
-                      child: Text(
-                        d.filename,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.ink,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 10,
-                  runSpacing: 6,
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  children: [
-                    datasetPill(d.status),
-                    Text(
-                      formatDateTime(d.createdAt),
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppColors.muted,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          datasetPill(d.status),
+                          const SizedBox(height: 8),
+                          Text(
+                            d.filename,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: AppColors.ink,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(formatDateTime(d.createdAt), style: small),
+                        ],
                       ),
                     ),
                   ],
                 ),
                 if (d.status == DatasetStatus.cleaning && d.rowCount > 0)
                   Padding(
-                    padding: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.only(top: 12),
                     child: LinearProgressIndicator(
                       value: d.processedRowCount / d.rowCount,
                       minHeight: 5,
                     ),
                   ),
-                if (d.status == DatasetStatus.failed)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 6),
-                    child: Text(
-                      'Fue rechazado. Toca para ver la causa.',
-                      style: TextStyle(fontSize: 13, color: AppColors.error),
+                const Divider(height: 24, color: Color(0xFFF0F1F4)),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        s != null
+                            ? '${s.cellCount} celdas · ${s.days} días'
+                            : d.status == DatasetStatus.failed
+                            ? 'Revisar estructura'
+                            : '',
+                        style: d.status == DatasetStatus.failed
+                            ? small.copyWith(color: AppColors.error)
+                            : small,
+                      ),
                     ),
-                  ),
+                    const Text(
+                      'Ver detalle',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.blue,
+                      ),
+                    ),
+                    const Icon(
+                      Icons.chevron_right,
+                      size: 20,
+                      color: AppColors.blue,
+                    ),
+                  ],
+                ),
               ],
             ),
           ),

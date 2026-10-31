@@ -73,6 +73,28 @@ final _datasetNotReady = RegExp(r'^The dataset is not ready to train');
 
 /// Why a file was rejected (`error_message` of a `failed` dataset).
 final _rejections = <(RegExp, String Function(Match))>[
+  // US002 E02: columns that could not be identified.
+  (
+    RegExp(r"^Could not identify the date column .* in sheet '(.*?)'"),
+    (m) => 'No se pudo identificar la columna de fechas en la hoja "${m[1]}". Verifica la estructura del archivo.',
+  ),
+  (
+    RegExp(r"^Could not identify the columns .* in sheet '(.*?)'"),
+    (m) => 'No se pudieron identificar las columnas de voltaje y corriente en la hoja "${m[1]}". Verifica la estructura del archivo.',
+  ),
+  // US003 E02: no electrical cells.
+  (
+    RegExp(r"^No electrical cells were found in sheet '(.*?)'"),
+    (m) => 'No se encontraron celdas eléctricas en la hoja "${m[1]}": las columnas de celdas se nombran con su número (1, 2, 3…).',
+  ),
+  (
+    RegExp(r'^No sheet identifies an electrical section'),
+    (_) => 'No se encontraron celdas eléctricas: ninguna hoja se identifica como una sección (por ejemplo "EL A"). Verifica la estructura del archivo.',
+  ),
+  (
+    RegExp(r'^The file is not a valid Excel workbook'),
+    (_) => 'El archivo no es un libro de Excel válido. Verifica la estructura del archivo.',
+  ),
   (
     RegExp(r'^The file has dates after today'),
     (_) => 'El archivo tiene fechas posteriores a hoy. Solo se pueden subir voltajes ya medidos.',

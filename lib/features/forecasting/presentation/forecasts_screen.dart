@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../../core/format.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/widgets/electric_border.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../core/widgets/load_error.dart';
 import '../../../core/widgets/screen_header.dart';
@@ -12,6 +13,7 @@ import '../data/forecast.dart';
 import '../data/forecasting_repository.dart';
 import 'forecast_widgets.dart';
 import 'forecasts_controller.dart';
+import '../../home/settings_menu.dart';
 
 /// Tab "Pronósticos": the voltage forecast of every cell for one day.
 class ForecastsScreen extends StatelessWidget {
@@ -70,6 +72,7 @@ class _ForecastsView extends StatelessWidget {
           : 'Voltaje estimado · ${formatShortDate(c.date!)}',
       title: 'Pronósticos',
       onLogout: auth?.logout,
+      onSettings: settingsAction(context),
       bottom: c.result == null || c.noModel
           ? null
           : StatRow(
@@ -149,7 +152,6 @@ class _ForecastsView extends StatelessWidget {
     }
 
     final visible = c.visible;
-    final rows = _rows(visible);
     return [
       SliverToBoxAdapter(
         child: _Controls(
@@ -166,41 +168,80 @@ class _ForecastsView extends StatelessWidget {
             icon: Icons.search_off,
             title: 'Ninguna celda coincide con la búsqueda',
           ),
-        )
-      else
-        // Virtualised: only the rows on screen are built.
-        SliverList.builder(
-          itemCount: rows.length,
-          itemBuilder: (context, index) => switch (rows[index]) {
-            final String title => Padding(
-              padding: const EdgeInsets.fromLTRB(16, 18, 16, 8),
-              child: SectionTitle(title),
-            ),
-            final ForecastItem item => Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-              child: _CellCard(
-                item: item,
-                onTap: () => context.push(_detailPath(item, result)),
-              ),
-            ),
-            _ => const SizedBox.shrink(),
-          },
         ),
+      for (final entry in _bySection(visible).entries)
+        ..._section(context, entry.key, entry.value, result),
     ];
   }
 
-  /// The headers and cards of the list, the cells over the limit first.
-  List<Object> _rows(List<ForecastItem> visible) {
-    final over = visible.where((i) => i.exceeds).toList();
-    final rest = visible.where((i) => !i.exceeds).toList();
+  /// "A1" -> section "A". Cells keep their order; the ones over the limit go first
+  /// in each section so they are seen without swiping.
+  Map<String, List<ForecastItem>> _bySection(List<ForecastItem> items) {
+    final sections = <String, List<ForecastItem>>{};
+    for (final item in items) {
+      final letters = RegExp(r'^[A-Za-z]+').firstMatch(item.cellName)?.group(0);
+      sections
+          .putIfAbsent(letters?.toUpperCase() ?? 'Otras', () => [])
+          .add(item);
+    }
+    final names = sections.keys.toList()..sort();
+    return {
+      for (final name in names)
+        name: [
+          ...sections[name]!.where((i) => i.exceeds),
+          ...sections[name]!.where((i) => !i.exceeds),
+        ],
+    };
+  }
+
+  /// A section: its title and the cards in two rows that slide sideways, so 150
+  /// cells do not make a long scroll. Virtualised: only the cards near the screen are built.
+  List<Widget> _section(
+    BuildContext context,
+    String name,
+    List<ForecastItem> items,
+    ForecastResult result,
+  ) {
+    // The card grows with the user's text size so nothing is cut.
+    final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
+    final cardHeight = 118 * scale.clamp(1.0, 1.6);
+    // Two columns fit and a slice of the third shows that the row slides.
+    final cardWidth =
+        (MediaQuery.sizeOf(context).width - 16 - 12 - 12 - 20) / 2;
+    final over = items.where((i) => i.exceeds).length;
+    final title = name == 'Otras' ? 'Otras celdas' : 'Sección $name';
     return [
-      if (over.isNotEmpty) ...['Superan el límite · ${over.length}', ...over],
-      if (rest.isNotEmpty) ...[
-        over.isEmpty
-            ? 'Celdas · ${rest.length}'
-            : 'Resto de celdas · ${rest.length}',
-        ...rest,
-      ],
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 18, 16, 10),
+          child: SectionTitle(
+            '$title · ${items.length} ${items.length == 1 ? 'celda' : 'celdas'}',
+            trailing: over == 0
+                ? null
+                : '$over ${over == 1 ? 'supera' : 'superan'}',
+          ),
+        ),
+      ),
+      SliverToBoxAdapter(
+        child: SizedBox(
+          height: cardHeight * 2 + 12,
+          child: GridView.builder(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 2,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              mainAxisExtent: cardWidth,
+            ),
+            itemCount: items.length,
+            itemBuilder: (context, index) => _CellCard(
+              item: items[index],
+              onTap: () => context.push(_detailPath(items[index], result)),
+            ),
+          ),
+        ),
+      ),
     ];
   }
 
@@ -322,112 +363,100 @@ class _CellCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final max = item.maxVoltage;
     final over = item.exceeds;
-    final color = over ? AppColors.error : AppColors.ink;
-
-    return Semantics(
+    final card = Semantics(
       button: true,
       excludeSemantics: true,
       label:
           'Celda ${item.cellName}, ${over ? 'supera el límite, ' : ''}${volts(item.voltage)}'
           '${max == null ? ', sin límite' : ', límite ${volts(max, 2)}'}',
       child: Material(
-        color: over ? AppColors.errorSoft : Colors.white,
+        color: Colors.white,
         borderRadius: AppRadius.large,
         child: InkWell(
           onTap: onTap,
           borderRadius: AppRadius.large,
           child: Container(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               borderRadius: AppRadius.large,
-              border: Border.all(
-                color: over ? AppColors.error : AppColors.border,
-                width: over ? 1.5 : 1,
-              ),
+              // The electric border is what marks a cell over the limit.
+              border: Border.all(color: AppColors.border),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                CircleAvatar(
-                  radius: 24,
-                  backgroundColor: over ? Colors.white : AppColors.blueSoft,
-                  child: Text(
-                    item.cellName,
-                    style: const TextStyle(
-                      fontWeight: FontWeight.w800,
-                      color: AppColors.ink,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Wrap(
-                        spacing: 8,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          Text(
-                            'Celda ${item.cellName}',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.ink,
-                            ),
-                          ),
-                          // Colour is not the only cue: the icon and the word say it too.
-                          if (over)
-                            const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.warning_amber_rounded,
-                                  size: 16,
-                                  color: AppColors.error,
-                                ),
-                                SizedBox(width: 3),
-                                Text(
-                                  'Supera',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w800,
-                                    color: AppColors.error,
-                                  ),
-                                ),
-                              ],
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      if (max != null)
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: LinearProgressIndicator(
-                            value: (item.voltage / max).clamp(0.0, 1.0),
-                            minHeight: 6,
-                            backgroundColor: AppColors.border,
-                            color: over ? AppColors.error : AppColors.blue,
-                          ),
-                        ),
-                      const SizedBox(height: 4),
-                      Text(
-                        max == null ? 'Sin límite' : 'Límite ${volts(max, 2)}',
+                Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        'Celda ${item.cellName}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
-                          fontSize: 12,
-                          color: AppColors.muted,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.ink,
+                        ),
+                      ),
+                    ),
+                    // Colour is not the only cue: the icon and the word say it too.
+                    if (over) ...[
+                      const SizedBox(width: 4),
+                      const Icon(
+                        Icons.warning_amber_rounded,
+                        size: 15,
+                        color: AppColors.error,
+                      ),
+                      const Text(
+                        'Supera',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.error,
                         ),
                       ),
                     ],
+                  ],
+                ),
+                // One line that shrinks instead of wrapping, so the card keeps its height.
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    volts(item.voltage),
+                    maxLines: 1,
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.w800,
+                      color: over ? AppColors.error : AppColors.ink,
+                    ),
                   ),
                 ),
-                const SizedBox(width: 12),
-                Text(
-                  volts(item.voltage),
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: color,
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (max != null)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(4),
+                        child: LinearProgressIndicator(
+                          value: (item.voltage / max).clamp(0.0, 1.0),
+                          minHeight: 5,
+                          backgroundColor: AppColors.border,
+                          color: over ? AppColors.error : AppColors.blue,
+                        ),
+                      ),
+                    const SizedBox(height: 4),
+                    Text(
+                      max == null ? 'Sin límite' : 'Límite ${volts(max, 2)}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.muted,
+                      ),
+                    ),
+                  ],
                 ),
               ],
             ),
@@ -435,5 +464,14 @@ class _CellCard extends StatelessWidget {
         ),
       ),
     );
+    // Only the cards over the limit crackle; the rest stay still.
+    return over
+        ? ElectricBorder(
+            // The blue of the section headers, so the border matches the screen.
+            color: AppColors.headerTop,
+            borderRadius: AppRadius.large.topLeft.x,
+            child: card,
+          )
+        : card;
   }
 }

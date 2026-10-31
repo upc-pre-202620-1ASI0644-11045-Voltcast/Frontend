@@ -28,8 +28,8 @@ class _ForecastChartState extends State<ForecastChart> {
   void _select(double dx, double width) {
     final n = widget.items.length;
     if (n < 2) return;
-    final plot = width - _ChartPainter.left - _ChartPainter.right;
-    final t = ((dx - _ChartPainter.left) / plot).clamp(0.0, 1.0);
+    final plot = width - ForecastChartPainter.left - ForecastChartPainter.right;
+    final t = ((dx - ForecastChartPainter.left) / plot).clamp(0.0, 1.0);
     setState(() => _selected = (t * (n - 1)).round());
   }
 
@@ -101,7 +101,7 @@ class _ForecastChartState extends State<ForecastChart> {
                   _select(d.localPosition.dx, box.maxWidth),
               child: CustomPaint(
                 size: Size(box.maxWidth, 220),
-                painter: _ChartPainter(
+                painter: ForecastChartPainter(
                   items: items,
                   limit: _limit,
                   selected: _selected,
@@ -115,11 +115,12 @@ class _ForecastChartState extends State<ForecastChart> {
   }
 }
 
-class _ChartPainter extends CustomPainter {
-  _ChartPainter({
+/// Also used to draw the PNG that can be downloaded.
+class ForecastChartPainter extends CustomPainter {
+  ForecastChartPainter({
     required this.items,
     required this.limit,
-    required this.selected,
+    this.selected,
   });
 
   final List<ForecastItem> items;
@@ -209,6 +210,40 @@ class _ChartPainter extends CustomPainter {
         ..strokeJoin = StrokeJoin.round,
     );
 
+    // The days over the limit stand out in red on top of the blue line.
+    final over = Path();
+    final dots = <Offset>[];
+    var open = false;
+    for (var i = 0; i < items.length; i++) {
+      if (!items[i].exceeds) {
+        open = false;
+        continue;
+      }
+      final at = Offset(x(i), y(values[i]));
+      if (open) {
+        over.lineTo(at.dx, at.dy);
+      } else {
+        over.moveTo(at.dx, at.dy);
+        // A lone day has no segment: it is drawn as a dot.
+        if ((i == 0 || !items[i - 1].exceeds) &&
+            (i == items.length - 1 || !items[i + 1].exceeds)) {
+          dots.add(at);
+        }
+      }
+      open = true;
+    }
+    canvas.drawPath(
+      over,
+      Paint()
+        ..color = AppColors.error
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.4
+        ..strokeJoin = StrokeJoin.round,
+    );
+    for (final dot in dots) {
+      canvas.drawCircle(dot, 2.4, Paint()..color = AppColors.error);
+    }
+
     if (limit != null) {
       final dashed = Paint()
         ..color = AppColors.error
@@ -247,6 +282,6 @@ class _ChartPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_ChartPainter old) =>
+  bool shouldRepaint(ForecastChartPainter old) =>
       old.items != items || old.limit != limit || old.selected != selected;
 }

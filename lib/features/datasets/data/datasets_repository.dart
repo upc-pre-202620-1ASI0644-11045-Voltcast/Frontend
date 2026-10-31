@@ -38,7 +38,8 @@ class DatasetsRepository {
 
   /// Accepts the merge shown for a dataset (202); it goes back to `raw`.
   Future<Dataset> confirm(int id) async => Dataset.fromJson(
-    await _api.post('/datasets/$id/confirm', auth: true) as Map<String, dynamic>,
+    await _api.post('/datasets/$id/confirm', auth: true)
+        as Map<String, dynamic>,
   );
 
   /// Uploads are refused while a training runs, so the screen asks.

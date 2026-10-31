@@ -12,6 +12,8 @@ import 'package:actualvoltcast/features/cells/data/pending_swap.dart';
 import 'package:actualvoltcast/features/cells/presentation/inventory_controller.dart';
 import 'package:actualvoltcast/features/forecasting/data/evaluation.dart';
 import 'package:actualvoltcast/features/forecasting/data/evaluation_cache.dart';
+import 'package:actualvoltcast/features/forecasting/data/evaluation_series.dart';
+import 'package:actualvoltcast/features/forecasting/presentation/error_series_chart.dart';
 import 'package:actualvoltcast/features/forecasting/data/forecast_cache.dart';
 import 'package:actualvoltcast/features/forecasting/data/forecasting_repository.dart';
 import 'package:actualvoltcast/features/forecasting/presentation/alert_rules_screen.dart';
@@ -20,6 +22,7 @@ import 'package:actualvoltcast/features/forecasting/presentation/model_controlle
 import 'package:actualvoltcast/features/forecasting/presentation/model_screen.dart';
 import 'package:excel/excel.dart';
 import 'package:flutter/material.dart';
+import 'package:actualvoltcast/features/home/settings_screen.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
@@ -71,6 +74,7 @@ Future<void> _pump(
   final router = GoRouter(
     routes: [
       GoRoute(path: '/', builder: (_, _) => screen),
+      GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
       GoRoute(
         path: '/datasets',
         builder: (_, _) => const Text('pantalla de archivos'),
@@ -121,56 +125,43 @@ void main() {
     ) async {
       await _pump(tester, FakeForecastingBackend(), const ModelScreen());
 
-      expect(find.text('BiLSTM + XGBoost · versión v4.2'), findsOneWidget);
-      expect(
-        find.textContaining('En promedio, el pronóstico se desvía 2,30 % (0,064 V)'),
-        findsOneWidget,
-      );
-      expect(
-        find.textContaining('Calculado sobre los últimos días de los datos'),
-        findsOneWidget,
-      );
+      // The model's name and version mean nothing to the user: not shown.
+      expect(find.textContaining('BiLSTM'), findsNothing);
+      expect(find.textContaining('versión'), findsNothing);
+      expect(find.text('Error del pronóstico'), findsOneWidget);
+      expect(find.textContaining('0,064'), findsOneWidget);
+      expect(find.text('Modelo disponible'), findsOneWidget);
+      expect(find.textContaining('En promedio'), findsNothing);
+      expect(find.textContaining('Calculado sobre'), findsNothing);
     });
 
-    testWidgets('the technical detail is collapsed until opened', (
-      tester,
-    ) async {
+    testWidgets('has no technical detail: only the sentence', (tester) async {
       await _pump(tester, FakeForecastingBackend(), const ModelScreen());
 
+      expect(find.text('Ver detalle técnico'), findsNothing);
       expect(find.text('RMSE'), findsNothing);
-      await tester.tap(find.text('Ver detalle técnico'));
-      await tester.pumpAndSettle();
-
-      for (final label in ['MSE', 'RMSE', 'MAE', 'MAPE', 'R²']) {
-        expect(find.text(label), findsOneWidget);
-      }
-      expect(find.text('0,0066 V²'), findsOneWidget);
-      expect(find.text('0,081 V'), findsOneWidget);
-      expect(find.text('0,930'), findsOneWidget);
     });
 
-    testWidgets('lists the worst cells of the default day', (tester) async {
-      final backend = FakeForecastingBackend();
-      await _pump(tester, backend, const ModelScreen());
+    testWidgets(
+      'lists the worst cells of the default day, with no order selector',
+      (tester) async {
+        final backend = FakeForecastingBackend();
+        await _pump(tester, backend, const ModelScreen());
 
-      expect(lastEvaluationQuery(backend), {'limit': '10', 'order': 'worst'});
-      expect(find.text('Mostrando 4 de 4 celdas'), findsOneWidget);
-      expect(find.textContaining('Error promedio de ese día:'), findsOneWidget);
-      expect(find.text('Voltaje pronosticado (V)'), findsOneWidget);
-      // B12 (id 4) errs the most; its error is shown with a comma.
-      expect(find.text('B12'), findsOneWidget);
-      expect(find.byIcon(Icons.warning_amber_rounded), findsWidgets);
-    });
-
-    testWidgets('"Menor error" asks for the best order', (tester) async {
-      final backend = FakeForecastingBackend();
-      await _pump(tester, backend, const ModelScreen());
-
-      await tester.tap(find.text('Menor error'));
-      await tester.pumpAndSettle();
-
-      expect(lastEvaluationQuery(backend)['order'], 'best');
-    });
+        expect(lastEvaluationQuery(backend), {'limit': '10', 'order': 'worst'});
+        expect(find.text('Mostrando 4 de 4 celdas'), findsOneWidget);
+        expect(find.text('Mayor error'), findsNothing);
+        expect(find.text('Menor error'), findsNothing);
+        expect(
+          find.textContaining('Error promedio de ese día:'),
+          findsOneWidget,
+        );
+        expect(find.text('Pronóstico'), findsNWidgets(4)); // one label per card
+        // B12 (id 4) errs the most; its error is shown with a comma.
+        expect(find.text('B12'), findsOneWidget);
+        expect(find.byIcon(Icons.warning_amber_rounded), findsWidgets);
+      },
+    );
 
     testWidgets('a date outside the range is refused in Spanish', (
       tester,
@@ -181,7 +172,10 @@ void main() {
       await controller(tester).setDate(DateTime(2027, 1, 1));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('No hay datos de comparación para esa fecha'), findsOneWidget);
+      expect(
+        find.textContaining('No hay datos de comparación para esa fecha'),
+        findsOneWidget,
+      );
       expect(find.textContaining('outside the available range'), findsNothing);
       // The table of before stays, and the picker is back inside the range.
       expect(find.text('Mostrando 4 de 4 celdas'), findsOneWidget);
@@ -215,7 +209,7 @@ void main() {
       );
 
       expect(find.text('Aún no hay un modelo entrenado'), findsOneWidget);
-      expect(find.textContaining('En promedio'), findsNothing);
+      expect(find.text('Error del pronóstico'), findsNothing);
     });
 
     testWidgets('a model with nothing to compare says so', (tester) async {
@@ -225,8 +219,11 @@ void main() {
         const ModelScreen(),
       );
 
-      expect(find.text('No hay datos de comparación para esta fecha'), findsOneWidget);
-      expect(find.textContaining('En promedio'), findsOneWidget);
+      expect(
+        find.text('No hay datos de comparación para esta fecha'),
+        findsOneWidget,
+      );
+      expect(find.text('Error del pronóstico'), findsOneWidget);
     });
 
     testWidgets('retraining shows the same banner as the forecasts', (
@@ -242,7 +239,7 @@ void main() {
         find.textContaining('Se está reentrenando el modelo'),
         findsOneWidget,
       );
-      expect(find.textContaining('En promedio'), findsOneWidget);
+      expect(find.text('Error del pronóstico'), findsOneWidget);
     });
 
     testWidgets('a server failure offers a retry', (tester) async {
@@ -253,7 +250,7 @@ void main() {
       backend.failStatus = null;
       await tester.tap(find.text('Reintentar'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('En promedio'), findsOneWidget);
+      expect(find.text('Error del pronóstico'), findsOneWidget);
     });
 
     testWidgets('offline it shows what was saved, and only for saved days', (
@@ -265,11 +262,118 @@ void main() {
       await controller(tester).load();
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Sin conexión. Datos guardados el'), findsOneWidget);
+      expect(
+        find.textContaining('Sin conexión. Datos guardados el'),
+        findsOneWidget,
+      );
       expect(find.text('Mostrando 4 de 4 celdas'), findsOneWidget);
-      expect(find.textContaining('En promedio'), findsOneWidget);
+      expect(find.text('Error del pronóstico'), findsOneWidget);
       expect(controller(tester).isSelectable(backend.evalTo), isTrue);
       expect(controller(tester).isSelectable(backend.evalFrom), isFalse);
+    });
+
+    int seriesCalls(FakeForecastingBackend b) => b.requests
+        .where((r) => r.url.path == '/api/v1/forecasts/evaluation/series')
+        .length;
+
+    testWidgets('draws the mean error per day, asked once for the screen', (
+      tester,
+    ) async {
+      final backend = FakeForecastingBackend();
+      await _pump(tester, backend, const ModelScreen());
+
+      expect(find.byType(ErrorSeriesChart), findsOneWidget);
+      expect(find.text('Error medio por día'), findsOneWidget);
+      expect(find.textContaining('los últimos 60 días'), findsOneWidget);
+      expect(seriesCalls(backend), 1);
+
+      await controller(tester).setDate(backend.evalFrom);
+      await tester.pumpAndSettle();
+      expect(seriesCalls(backend), 1); // the series does not depend on the day
+    });
+
+    testWidgets('touching the chart picks that day, in sync with the table', (
+      tester,
+    ) async {
+      final backend = FakeForecastingBackend();
+      await _pump(tester, backend, const ModelScreen());
+      expect(controller(tester).date, backend.evalTo);
+
+      final box = tester.getTopLeft(find.byType(ErrorSeriesChart));
+      await tester.tapAt(box + const Offset(15, 100)); // the first day
+      await tester.pumpAndSettle();
+
+      expect(controller(tester).date, backend.evalFrom);
+      expect(lastEvaluationQuery(backend)['date'], apiDate(backend.evalFrom));
+      expect(
+        find.text('Fecha: ${formatShortDate(backend.evalFrom)}'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('offline the chart comes from the saved copy', (tester) async {
+      final backend = FakeForecastingBackend();
+      await _pump(tester, backend, const ModelScreen());
+      backend.offline = true;
+      await controller(tester).load();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ErrorSeriesChart), findsOneWidget);
+    });
+
+    testWidgets('a failing series says so, with a retry, and the table stays', (
+      tester,
+    ) async {
+      final backend = FakeForecastingBackend()..seriesStatus = 500;
+      await _pump(tester, backend, const ModelScreen());
+
+      expect(find.byType(ErrorSeriesChart), findsNothing);
+      expect(find.text('Mostrando 4 de 4 celdas'), findsOneWidget);
+      backend.seriesStatus = 200;
+      await tester.tap(find.text('Reintentar'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ErrorSeriesChart), findsOneWidget);
+    });
+
+    testWidgets('an empty series says there is nothing to chart', (
+      tester,
+    ) async {
+      await _pump(
+        tester,
+        FakeForecastingBackend()..noComparison = true,
+        const ModelScreen(),
+      );
+
+      expect(find.byType(ErrorSeriesChart), findsNothing);
+      expect(find.text('Aún no hay datos para graficar.'), findsOneWidget);
+    });
+
+    testWidgets('the cards fit 360 px even with a long cell name', (
+      tester,
+    ) async {
+      final backend = FakeForecastingBackend()
+        ..cells['A130-LARGO-123456'] = 9;
+      tester.view.physicalSize = const Size(360, 2400);
+      await _pump(tester, backend, const ModelScreen());
+      // _pump sets 420 px; narrow it before the cards are built again.
+      tester.view.physicalSize = const Size(360, 2400);
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('A130-LARGO-123456'), findsOneWidget);
+    });
+
+    testWidgets('the cards flag only the cells well above the day mean', (
+      tester,
+    ) async {
+      await _pump(tester, FakeForecastingBackend(), const ModelScreen());
+
+      // B12 errs the most: flagged; A1 errs less than the mean: not.
+      expect(find.byIcon(Icons.warning_amber_rounded), findsWidgets);
+      expect(
+        find.byIcon(Icons.warning_amber_rounded).evaluate().length,
+        lessThan(4),
+      );
     });
 
     testWidgets('offline with nothing saved says so', (tester) async {
@@ -299,7 +403,10 @@ void main() {
         ),
       );
 
-      await tester.scrollUntilVisible(find.text('Descargar todas las celdas (Excel)'), 200);
+      await tester.scrollUntilVisible(
+        find.text('Descargar todas las celdas (Excel)'),
+        200,
+      );
       await tester.tap(find.text('Descargar todas las celdas (Excel)'));
       await tester.pumpAndSettle();
 
@@ -320,35 +427,100 @@ void main() {
       backend.offline = true;
       await controller(tester).load();
       await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('Descargar todas las celdas (Excel)'), 200);
+      await tester.scrollUntilVisible(
+        find.text('Descargar todas las celdas (Excel)'),
+        200,
+      );
 
-      expect(tester.widget<SecondaryButton>(find.byType(SecondaryButton)).onPressed, isNull);
-      expect(find.textContaining('guardó completo con conexión'), findsOneWidget);
+      expect(
+        tester.widget<SecondaryButton>(find.byType(SecondaryButton)).onPressed,
+        isNull,
+      );
+      expect(
+        find.textContaining('guardó completo con conexión'),
+        findsOneWidget,
+      );
     });
 
-    testWidgets('only a supervisor sees the voltage limit', (tester) async {
-      await _pump(
-        tester,
-        FakeForecastingBackend(),
-        const ModelScreen(),
-        role: 'ADMIN',
-      );
-      await tester.scrollUntilVisible(find.text('Límite de voltaje'), 200);
+    testWidgets('the Modelo tab no longer lists the files', (tester) async {
+      await _pump(tester, FakeForecastingBackend(), const ModelScreen());
+
+      expect(find.text('Archivos históricos'), findsNothing);
+      expect(find.text('Límite de voltaje'), findsNothing);
+    });
+  });
+
+  group('SettingsScreen', () {
+    testWidgets('a supervisor sees the three entries', (tester) async {
+      await _pump(tester, FakeForecastingBackend(), const SettingsScreen());
+
+      expect(find.text('Centro de control'), findsOneWidget);
+      expect(find.text('Oscar Aranda'), findsOneWidget);
+      expect(find.text('Archivos históricos'), findsOneWidget);
+      expect(find.text('Precisión del modelo'), findsOneWidget);
+
       await tester.tap(find.text('Límite de voltaje'));
       await tester.pumpAndSettle();
       expect(find.text('pantalla de límite'), findsOneWidget);
     });
 
-    testWidgets('an engineer does not', (tester) async {
+    testWidgets('an engineer reaches the files but has no limit entry', (
+      tester,
+    ) async {
       await _pump(
         tester,
         FakeForecastingBackend(),
-        const ModelScreen(),
+        const SettingsScreen(),
         role: 'USER',
       );
-      await tester.scrollUntilVisible(find.text('Archivos históricos'), 200);
-      expect(find.text('Archivos históricos'), findsOneWidget);
+
       expect(find.text('Límite de voltaje'), findsNothing);
+      await tester.tap(find.text('Archivos históricos'));
+      await tester.pumpAndSettle();
+      expect(find.text('pantalla de archivos'), findsOneWidget);
+    });
+  });
+
+  group('EvaluationSeries', () {
+    test('parses the points and the validation range', () {
+      final series = EvaluationSeries.fromJson({
+        'model': {'id': 3, 'name': 'x', 'version': 'y'},
+        'retraining': false,
+        'message': null,
+        'available_from': '2026-08-31',
+        'available_to': '2026-10-29',
+        'items': [
+          {'date': '2026-08-31', 'mean_error_pct': 2.14, 'total_cells': 300},
+        ],
+      });
+
+      expect(series.items.single.meanErrorPct, 2.14);
+      expect(series.items.single.totalCells, 300);
+      expect(series.days, 60);
+      expect(EvaluationSeries.fromJson(series.toJson()).items.length, 1);
+    });
+
+    test('without a model it is empty and carries the message', () {
+      final series = EvaluationSeries.fromJson({
+        'model': null,
+        'message': 'Aún no hay un modelo entrenado.',
+        'items': [],
+      });
+
+      expect(series.model, isNull);
+      expect(series.items, isEmpty);
+      expect(series.message, 'Aún no hay un modelo entrenado.');
+      expect(series.days, isNull);
+    });
+  });
+
+  group('severityOf', () {
+    test('compares the cell with the mean of its day', () {
+      expect(severityOf(1.0, 2.0), Severity.normal);
+      expect(severityOf(2.0, 2.0), Severity.normal);
+      expect(severityOf(3.0, 2.0), Severity.elevated);
+      expect(severityOf(4.0, 2.0), Severity.high);
+      expect(severityOf(9.0, null), Severity.normal);
     });
   });
 
@@ -369,8 +541,8 @@ void main() {
       expect(sheet.rows.length, 2);
       expect(sheet.rows[0].map((c) => c?.value.toString()), [
         'Celda',
-        'Voltaje real (V)',
-        'Voltaje pronosticado (V)',
+        'V. Real',
+        'Pronóstico',
         'Diferencia (V)',
         'Error (%)',
       ]);
@@ -392,7 +564,7 @@ void main() {
     testWidgets('shows the current general limit', (tester) async {
       await _pump(tester, FakeForecastingBackend(), const AlertRulesScreen());
 
-      expect(find.textContaining('Actual: 4.50 V'), findsOneWidget);
+      expect(find.text('4.50 V'), findsOneWidget);
     });
 
     testWidgets('saves the general limit without a cell', (tester) async {
@@ -400,13 +572,13 @@ void main() {
       await _pump(tester, backend, const AlertRulesScreen());
 
       await enterVoltage(tester, 0, '3,6');
-      await tester.tap(find.text('Guardar límite general'));
+      await tester.tap(find.text('Guardar límite'));
       await tester.pumpAndSettle();
 
       final post = backend.requests.lastWhere((r) => r.method == 'POST');
       expect(jsonDecode(post.body), {'max_voltage': 3.6});
       expect(find.text('Límite general guardado.'), findsOneWidget);
-      expect(find.textContaining('Actual: 3.60 V'), findsOneWidget);
+      expect(find.text('3.60 V'), findsOneWidget);
     });
 
     testWidgets('a value that is not above zero is refused before sending', (
@@ -417,48 +589,29 @@ void main() {
 
       for (final bad in ['', '0']) {
         await enterVoltage(tester, 0, bad);
-        await tester.tap(find.text('Guardar límite general'));
+        await tester.tap(find.text('Guardar límite'));
         await tester.pumpAndSettle();
         expect(find.text('Ingresa un voltaje mayor que cero.'), findsOneWidget);
       }
       expect(backend.requests.where((r) => r.method == 'POST'), isEmpty);
     });
 
-    testWidgets(
-      'saves the limit of one cell, which replaces the general one for it',
-      (tester) async {
-        final backend = FakeForecastingBackend();
-        await _pump(tester, backend, const AlertRulesScreen());
+    testWidgets('there is only the general limit, none per cell', (
+      tester,
+    ) async {
+      await _pump(tester, FakeForecastingBackend(), const AlertRulesScreen());
 
-        await tester.tap(find.text('Guardar límite de la celda'));
-        await tester.pumpAndSettle();
-        expect(find.text('Elige una celda.'), findsOneWidget);
-
-        await tester.tap(find.text('Elige una celda'), warnIfMissed: false);
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Celda A7').last);
-        await tester.pumpAndSettle();
-        await enterVoltage(tester, 1, '4.6');
-        await tester.tap(find.text('Guardar límite de la celda'));
-        await tester.pumpAndSettle();
-
-        final post = backend.requests.lastWhere((r) => r.method == 'POST');
-        expect(jsonDecode(post.body), {'max_voltage': 4.6, 'cell_id': 2});
-        expect(find.text('Límite de la celda A7 guardado.'), findsOneWidget);
-        expect(
-          find.text('Límites por celda · 1'),
-          findsNothing,
-        ); // title is split: label + count
-        expect(find.text('4.60 V'), findsOneWidget);
-      },
-    );
+      expect(find.byType(TextField), findsOneWidget);
+      expect(find.text('Límite por celda'), findsNothing);
+      expect(find.text('Guardar límite de la celda'), findsNothing);
+    });
 
     testWidgets('a 403 is explained instead of crashing', (tester) async {
       final backend = FakeForecastingBackend()..forbidden = true;
       await _pump(tester, backend, const AlertRulesScreen(), role: 'USER');
 
       await enterVoltage(tester, 0, '3.5');
-      await tester.tap(find.text('Guardar límite general'));
+      await tester.tap(find.text('Guardar límite'));
       await tester.pumpAndSettle();
 
       expect(

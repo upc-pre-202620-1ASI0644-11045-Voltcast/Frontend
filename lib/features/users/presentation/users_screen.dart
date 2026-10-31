@@ -15,6 +15,7 @@ import '../../auth/presentation/auth_controller.dart';
 import '../data/users_repository.dart';
 import 'users_controller.dart';
 import 'users_widgets.dart';
+import '../../home/settings_menu.dart';
 
 class UsersScreen extends StatelessWidget {
   const UsersScreen({super.key});
@@ -82,6 +83,7 @@ class _UsersView extends StatelessWidget {
       eyebrow: 'Gestión de accesos',
       title: 'Usuarios',
       onLogout: auth?.logout,
+      onSettings: settingsAction(context),
       bottom: users.hasLoaded
           ? StatRow(
               tiles: [

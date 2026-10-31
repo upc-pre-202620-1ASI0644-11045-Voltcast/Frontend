@@ -94,16 +94,24 @@ class BrandHeader extends StatelessWidget {
     super.key,
     required this.eyebrow,
     required this.title,
+    this.subtitle,
     this.action,
     this.onLogout,
+    this.onSettings,
     this.onBack,
     this.bottom,
   });
 
   final String eyebrow;
   final String title;
+
+  /// A line under the title (the greeting's detail), when it reads better there.
+  final String? subtitle;
   final Widget? action;
   final VoidCallback? onLogout;
+
+  /// A gear next to the logout button; null hides it (nothing to configure).
+  final VoidCallback? onSettings;
 
   /// Replaces the logo with a back button, for screens opened over the tabs.
   final VoidCallback? onBack;
@@ -168,6 +176,17 @@ class BrandHeader extends StatelessWidget {
                     style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: Colors.white),
                   ),
                   const Spacer(),
+                  if (onSettings != null)
+                    IconButton(
+                      tooltip: 'Configuración',
+                      onPressed: onSettings,
+                      icon: const Icon(Icons.settings_outlined, size: 20),
+                      style: IconButton.styleFrom(
+                        backgroundColor: Colors.white.withValues(alpha: 0.16),
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  if (onSettings != null && onLogout != null) const SizedBox(width: 8),
                   if (onLogout != null)
                     IconButton(
                       tooltip: 'Cerrar sesión',
@@ -188,13 +207,15 @@ class BrandHeader extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          eyebrow,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 14, color: Colors.white.withValues(alpha: 0.8)),
-                        ),
-                        const SizedBox(height: 2),
+                        if (eyebrow.isNotEmpty) ...[
+                          Text(
+                            eyebrow,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 14, color: Colors.white.withValues(alpha: 0.8)),
+                          ),
+                          const SizedBox(height: 2),
+                        ],
                         Text(
                           title,
                           maxLines: 2,
@@ -206,6 +227,13 @@ class BrandHeader extends StatelessWidget {
                             color: Colors.white,
                           ),
                         ),
+                        if (subtitle != null)
+                          Text(
+                            subtitle!,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(fontSize: 14, color: Colors.white.withValues(alpha: 0.8)),
+                          ),
                       ],
                     ),
                   ),

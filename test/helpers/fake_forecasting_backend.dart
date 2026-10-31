@@ -96,17 +96,61 @@ class FakeForecastingBackend {
   };
 
   Map<String, dynamic> _mergeSummary(int baseId) => {
-        'base': {'date_from': '2024-01-01', 'date_to': '2026-06-30'},
-        'new': {'date_from': '2026-06-25', 'date_to': '2026-09-30'},
-        'gap_days': 0,
-        'overlap_days': 6,
-        'merged_days': 1004,
-        'base_dataset_id': baseId,
-      };
+    'base': {'date_from': '2024-01-01', 'date_to': '2026-06-30'},
+    'new': {'date_from': '2026-06-25', 'date_to': '2026-09-30'},
+    'gap_days': 0,
+    'overlap_days': 6,
+    'merged_days': 1004,
+    'base_dataset_id': baseId,
+  };
 
   /// 60 validation days ending the day before the forecasts start.
   DateTime get evalTo => from.subtract(const Duration(days: 3));
   DateTime get evalFrom => evalTo.subtract(const Duration(days: 59));
+
+  /// `/forecasts/evaluation/series` answers this status when it is not 200.
+  int seriesStatus = 200;
+
+  /// Mean error of every cell on [date], as `/forecasts/evaluation` reports it.
+  double _meanError(DateTime date) {
+    final errors = [
+      for (final id in cells.values) (id * 0.004) / (3.1 + id * 0.01) * 100,
+    ];
+    return errors.fold<double>(0, (n, e) => n + e) / errors.length;
+  }
+
+  http.Response _series() {
+    if (seriesStatus != 200) {
+      return _json(seriesStatus, {'detail': 'series failed'});
+    }
+    final days = [
+      for (
+        var d = evalFrom;
+        !d.isAfter(evalTo);
+        d = d.add(const Duration(days: 1))
+      )
+        d,
+    ];
+    return _json(200, {
+      'model': noModel
+          ? null
+          : {'id': 1, 'name': 'BiLSTM + XGBoost', 'version': 'v4.2'},
+      'retraining': retraining,
+      'message': noModel ? 'Aún no hay un modelo entrenado.' : null,
+      'available_from': noModel ? null : _iso(evalFrom),
+      'available_to': noModel ? null : _iso(evalTo),
+      'items': noModel || noComparison
+          ? []
+          : [
+              for (final d in days)
+                {
+                  'date': _iso(d),
+                  'mean_error_pct': _meanError(d),
+                  'total_cells': cells.length,
+                },
+            ],
+    });
+  }
 
   http.Response _evaluation(Map<String, String> q) {
     final date = q['date'] == null ? evalTo : DateTime.parse(q['date']!);
@@ -114,24 +158,34 @@ class FakeForecastingBackend {
       return _json(400, {'detail': 'The date is outside the available range'});
     }
     final limit = int.parse(q['limit'] ?? '10');
-    final all = [
-      for (final e in cells.entries)
-        () {
-          final real = 3.1 + e.value * 0.01;
-          final predicted = real + e.value * 0.004 * (date.day.isEven ? 1 : -1);
-          return {
-            'cell_id': e.value,
-            'cell_name': e.key,
-            'real': real,
-            'predicted': predicted,
-            'error_v': (predicted - real).abs(),
-            'error_pct': (predicted - real).abs() / real * 100,
-          };
-        }(),
-    ]..sort((a, b) => (q['order'] == 'best' ? 1 : -1) * (a['error_pct'] as double).compareTo(b['error_pct'] as double));
-    final mean = all.fold<double>(0, (n, i) => n + (i['error_pct'] as double)) / all.length;
+    final all =
+        [
+          for (final e in cells.entries)
+            () {
+              final real = 3.1 + e.value * 0.01;
+              final predicted =
+                  real + e.value * 0.004 * (date.day.isEven ? 1 : -1);
+              return {
+                'cell_id': e.value,
+                'cell_name': e.key,
+                'real': real,
+                'predicted': predicted,
+                'error_v': (predicted - real).abs(),
+                'error_pct': (predicted - real).abs() / real * 100,
+              };
+            }(),
+        ]..sort(
+          (a, b) =>
+              (q['order'] == 'best' ? 1 : -1) *
+              (a['error_pct'] as double).compareTo(b['error_pct'] as double),
+        );
+    final mean =
+        all.fold<double>(0, (n, i) => n + (i['error_pct'] as double)) /
+        all.length;
     return _json(200, {
-      'model': noModel ? null : {'id': 1, 'name': 'BiLSTM + XGBoost', 'version': 'v4.2'},
+      'model': noModel
+          ? null
+          : {'id': 1, 'name': 'BiLSTM + XGBoost', 'version': 'v4.2'},
       'retraining': retraining,
       'message': null,
       'available_from': noModel ? null : _iso(evalFrom),
@@ -256,7 +310,9 @@ class FakeForecastingBackend {
     }
     final confirm = RegExp(r'^/datasets/(\d+)/confirm$').firstMatch(path);
     if (request.method == 'POST' && confirm != null) {
-      final d = datasets.firstWhere((d) => d['id'] == int.parse(confirm.group(1)!));
+      final d = datasets.firstWhere(
+        (d) => d['id'] == int.parse(confirm.group(1)!),
+      );
       d['upload_status'] = 'raw';
       return _json(202, d);
     }
@@ -273,9 +329,15 @@ class FakeForecastingBackend {
           'detail': "Unsupported file format '.csv'. Upload an Excel file (.xlsm, .xlsx)",
         });
       }
-      final base = RegExp(r'name="base_dataset_id"\s+(\d+)').firstMatch(request.body)?.group(1);
+      final base = RegExp(r'name="base_dataset_id"\s+(\d+)')
+          .firstMatch(request.body)
+          ?.group(1);
       final created = {
-        ...dataset(datasets.length + 1, name, base == null ? 'raw' : 'awaiting_confirmation'),
+        ...dataset(
+          datasets.length + 1,
+          name,
+          base == null ? 'raw' : 'awaiting_confirmation',
+        ),
         'base_dataset_id': base == null ? null : int.parse(base),
       };
       datasets.insert(0, created);
@@ -298,6 +360,7 @@ class FakeForecastingBackend {
 
     // Forecasts
     if (get && path == '/forecasts') return _forecasts(q);
+    if (get && path == '/forecasts/evaluation/series') return _series();
     if (get && path == '/forecasts/evaluation') return _evaluation(q);
     if (get && path == '/forecasts/metrics') {
       return _json(200, {

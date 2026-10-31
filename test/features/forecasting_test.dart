@@ -1,14 +1,20 @@
+import 'dart:typed_data';
+
 import 'package:actualvoltcast/core/format.dart';
 import 'package:actualvoltcast/core/network/api_client.dart';
 import 'package:actualvoltcast/core/network/api_exception.dart';
 import 'package:actualvoltcast/core/network/backend_messages.dart';
 import 'package:actualvoltcast/core/theme/app_theme.dart';
+import 'package:actualvoltcast/core/widgets/electric_border.dart';
 import 'package:actualvoltcast/features/forecasting/data/forecast.dart';
 import 'package:actualvoltcast/features/forecasting/data/forecast_cache.dart';
 import 'package:actualvoltcast/features/forecasting/data/forecasting_repository.dart';
 import 'package:actualvoltcast/features/forecasting/presentation/cell_forecast_screen.dart';
+import 'package:actualvoltcast/features/forecasting/presentation/forecast_chart.dart';
+import 'package:actualvoltcast/features/forecasting/presentation/forecast_export.dart';
 import 'package:actualvoltcast/features/forecasting/presentation/forecasts_controller.dart';
 import 'package:actualvoltcast/features/forecasting/presentation/forecasts_screen.dart';
+import 'package:excel/excel.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -44,7 +50,7 @@ ForecastItem _item(
 
 ForecastResult _result(List<ForecastItem> items) => ForecastResult(
   items: items,
-  model: const ModelInfo(id: 1, name: 'BiLSTM', version: 'v1'),
+  model: const ModelInfo(),
   availableFrom: DateTime(2026, 11, 1),
   availableTo: DateTime(2027, 4, 29),
 );
@@ -54,7 +60,12 @@ Future<GoRouter> _pumpScreen(
   ForecastingRepository repo, {
   required Widget home,
   List<String>? pushed,
+  // The electric border never stops moving, which pumpAndSettle cannot wait for.
+  bool animations = false,
 }) async {
+  tester.platformDispatcher.accessibilityFeaturesTestValue =
+      FakeAccessibilityFeatures(disableAnimations: !animations);
+  addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
   tester.view.physicalSize = const Size(420, 2400);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -78,7 +89,13 @@ Future<GoRouter> _pumpScreen(
       child: MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
     ),
   );
-  await tester.pumpAndSettle();
+  if (animations) {
+    for (var i = 0; i < 8; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  } else {
+    await tester.pumpAndSettle();
+  }
   return router;
 }
 
@@ -101,6 +118,31 @@ void main() {
     test('dates', () {
       expect(apiDate(DateTime(2026, 3, 4)), '2026-03-04');
       expect(parseApiDate('2026-03-04'), DateTime(2026, 3, 4));
+    });
+
+    test('days over the limit are grouped into runs of consecutive days', () {
+      ForecastItem day(int d, bool over) => ForecastItem(
+        cellId: 1,
+        cellName: 'A1',
+        date: DateTime(2026, 11, d),
+        voltage: over ? 4.6 : 3.2,
+        maxVoltage: 4.5,
+        exceeds: over,
+      );
+      final ranges = exceedRanges([
+        day(1, true),
+        day(2, true),
+        day(3, false),
+        day(4, true),
+        // 5 is missing: a gap ends the run
+        day(6, true),
+      ]);
+
+      expect(ranges, [
+        (from: DateTime(2026, 11, 1), to: DateTime(2026, 11, 2), days: 2),
+        (from: DateTime(2026, 11, 4), to: DateTime(2026, 11, 4), days: 1),
+        (from: DateTime(2026, 11, 6), to: DateTime(2026, 11, 6), days: 1),
+      ]);
     });
 
     test('backend messages of these screens are translated', () {
@@ -257,8 +299,9 @@ void main() {
 
         expect(find.text('Voltaje estimado · 01 nov 2026'), findsOneWidget);
         expect(backend.requests.single.url.query, isEmpty);
-        expect(find.text('Superan el límite · 1'), findsOneWidget);
-        expect(find.text('Resto de celdas · 3'), findsOneWidget);
+        expect(find.text('Sección A · 2 celdas'), findsOneWidget);
+        expect(find.text('1 supera'), findsOneWidget);
+        expect(find.text('Sección B · 2 celdas'), findsOneWidget);
         // The alert is not colour only: icon + word.
         expect(find.text('Supera'), findsOneWidget);
         expect(find.byIcon(Icons.warning_amber_rounded), findsWidgets);
@@ -270,6 +313,81 @@ void main() {
         ); // the stat label and the cell without limit
       },
     );
+
+    testWidgets(
+      'each section stacks two cards per column, the one over the limit first',
+      (tester) async {
+        await _pumpScreen(
+          tester,
+          _repo(FakeForecastingBackend()),
+          home: const ForecastsScreen(),
+        );
+
+        final a7 = tester.getRect(find.text('Celda A7'));
+        final a1 = tester.getRect(find.text('Celda A1'));
+        final b1 = tester.getRect(find.text('Celda B1'));
+        // A7 (over the limit) leads; A1 sits right under it, in the same column.
+        expect(a7.left, a1.left);
+        expect(a1.top, greaterThan(a7.top));
+        // Section B starts below section A.
+        expect(b1.top, greaterThan(a1.top));
+      },
+    );
+
+    testWidgets('a section slides sideways to reach the rest of its cells', (
+      tester,
+    ) async {
+      final backend = FakeForecastingBackend();
+      for (var n = 2; n <= 8; n++) {
+        if (n != 7) backend.cells['A$n'] = 10 + n;
+      }
+      await _pumpScreen(tester, _repo(backend), home: const ForecastsScreen());
+
+      // 8 cells = 4 columns of 2: the last one is far to the right, not even built yet.
+      expect(find.text('Celda A8'), findsNothing);
+      await tester.drag(find.byType(GridView).first, const Offset(-600, 0));
+      await tester.pumpAndSettle();
+      expect(find.text('Celda A8'), findsOneWidget);
+      expect(tester.getTopLeft(find.text('Celda A8')).dx, lessThan(420));
+    });
+
+    testWidgets('only the cell over the limit gets the electric border', (
+      tester,
+    ) async {
+      await _pumpScreen(
+        tester,
+        _repo(FakeForecastingBackend()),
+        home: const ForecastsScreen(),
+      );
+
+      expect(find.byType(ElectricBorder), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(ElectricBorder),
+          matching: find.text('Celda A7'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the border moves, and stands still with animations off', (
+      tester,
+    ) async {
+      await _pumpScreen(
+        tester,
+        _repo(FakeForecastingBackend()),
+        home: const ForecastsScreen(),
+        animations: true,
+      );
+      expect(tester.hasRunningAnimations, isTrue);
+      await tester.pump(const Duration(milliseconds: 300));
+      expect(tester.takeException(), isNull);
+
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+      await tester.pump();
+      expect(tester.hasRunningAnimations, isFalse);
+    });
 
     testWidgets('searches by cell name', (tester) async {
       await _pumpScreen(
@@ -501,7 +619,14 @@ void main() {
         expect(find.text('180'), findsOneWidget);
 
         await tester.tapAt(
-          tester.getTopLeft(find.byType(CustomPaint).last) +
+          tester.getTopLeft(
+                find
+                    .descendant(
+                      of: find.byType(ForecastChart),
+                      matching: find.byType(CustomPaint),
+                    )
+                    .last,
+              ) +
               const Offset(200, 100),
         );
         await tester.pump();
@@ -509,6 +634,116 @@ void main() {
         expect(find.text('Supera el límite'), findsOneWidget);
       },
     );
+
+    testWidgets('lists the dates over the limit as one run of days', (
+      tester,
+    ) async {
+      await _pumpScreen(
+        tester,
+        _repo(FakeForecastingBackend()),
+        home: detail(),
+      );
+
+      expect(find.text('Fechas que superan el límite'), findsOneWidget);
+      expect(find.text('01 nov 2026 – 29 abr 2027'), findsOneWidget);
+      expect(find.text('180 días'), findsOneWidget);
+    });
+
+    testWidgets('a cell under its limit has no list of dates', (tester) async {
+      await _pumpScreen(
+        tester,
+        _repo(FakeForecastingBackend()),
+        home: const CellForecastScreen(cellId: 1, name: 'A1'),
+      );
+
+      expect(find.text('Fechas que superan el límite'), findsNothing);
+    });
+
+    testWidgets('downloads the data as Excel', (tester) async {
+      String? name;
+      Uint8List? bytes;
+      await _pumpScreen(
+        tester,
+        _repo(FakeForecastingBackend()),
+        home: CellForecastScreen(
+          cellId: 2,
+          name: 'A7',
+          from: DateTime(2026, 11, 1),
+          to: DateTime(2027, 4, 29),
+          saveFile: (fileName, data, mime) async {
+            name = fileName;
+            bytes = data;
+          },
+        ),
+      );
+
+      await tester.tap(find.text('Descargar'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Datos (Excel)'));
+      await tester.pumpAndSettle();
+
+      expect(name, 'pronostico_A7_2026-11-01_2027-04-29.xlsx');
+      final sheet = Excel.decodeBytes(bytes!).tables['Pronóstico']!;
+      expect(sheet.rows.length, 181); // header + 180 days
+      expect(sheet.rows[0].map((c) => c?.value.toString()), [
+        'Fecha',
+        'Voltaje (V)',
+        'Límite (V)',
+        'Supera el límite',
+      ]);
+      expect(sheet.rows[1][0]!.value.toString(), '2026-11-01');
+      expect(sheet.rows[1][3]!.value.toString(), 'Sí');
+    });
+
+    testWidgets('downloads the chart as a PNG', (tester) async {
+      String? name;
+      String? mime;
+      await _pumpScreen(
+        tester,
+        _repo(FakeForecastingBackend()),
+        home: CellForecastScreen(
+          cellId: 2,
+          name: 'A7',
+          from: DateTime(2026, 11, 1),
+          to: DateTime(2027, 4, 29),
+          // Images cannot be encoded on the test clock; forecastPng has its own test.
+          buildPng: ({required cellName, required items}) async =>
+              Uint8List.fromList([1, 2, 3]),
+          saveFile: (fileName, data, type) async {
+            name = fileName;
+            mime = type;
+          },
+        ),
+      );
+
+      await tester.tap(find.text('Descargar'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Imagen del gráfico (PNG)'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('No se pudo generar el archivo.'), findsNothing);
+      expect(name, 'pronostico_A7_2026-11-01_2027-04-29.png');
+      expect(mime, 'image/png');
+    });
+
+    testWidgets('forecastPng draws a real PNG', (tester) async {
+      final items = [
+        for (var i = 0; i < 5; i++)
+          ForecastItem(
+            cellId: 1,
+            cellName: 'A1',
+            date: DateTime(2026, 11, 1 + i),
+            voltage: 3.2 + i * 0.1,
+            maxVoltage: 3.4,
+            exceeds: i > 2,
+          ),
+      ];
+      final bytes = await tester.runAsync(
+        () => forecastPng(cellName: 'A1', items: items),
+      );
+
+      expect(bytes!.sublist(0, 4), [0x89, 0x50, 0x4E, 0x47]); // PNG signature
+    });
 
     testWidgets('without the range it asks for it first', (tester) async {
       final backend = FakeForecastingBackend();

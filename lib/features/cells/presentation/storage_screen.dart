@@ -14,6 +14,7 @@ import 'cell_screen.dart' show FreeComponentScreen;
 import 'component_actions.dart';
 import 'inventory_controller.dart';
 import 'component_rotable_bar.dart';
+import '../../home/settings_menu.dart';
 
 enum _Filter { all, free, disabled, anode, cathode }
 
@@ -42,6 +43,7 @@ class _StorageScreenState extends State<StorageScreen> {
       eyebrow: 'Ánodos y cátodos',
       title: 'Inventario',
       onLogout: auth?.logout,
+      onSettings: settingsAction(context),
       action: HeaderAction(
         label: 'Nuevo',
         onPressed: inventory.hasLoaded ? () => showComponentSheet(context, inventory) : null,

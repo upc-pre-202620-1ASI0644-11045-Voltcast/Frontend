@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../../../core/format.dart';
 import 'evaluation.dart';
+import 'evaluation_series.dart';
 import 'forecast.dart';
 import 'forecast_cache.dart';
 
@@ -18,6 +19,7 @@ class EvaluationCache {
 
   final ForecastCacheStore _store;
   Map<String, dynamic>? _metrics;
+  Map<String, dynamic>? _series;
   final _days = <String, Map<String, dynamic>>{};
   bool _loaded = false;
 
@@ -29,17 +31,21 @@ class EvaluationCache {
       if (raw == null) return;
       final json = jsonDecode(raw) as Map<String, dynamic>;
       _metrics = json['metrics'] as Map<String, dynamic>?;
+      _series = json['series'] as Map<String, dynamic>?;
       _days.addAll((json['days'] as Map<String, dynamic>).cast());
     } on Object {
       // A corrupted copy must not block the screen; start clean.
       _days.clear();
       _metrics = null;
+      _series = null;
     }
   }
 
   Future<void> _write() async {
     try {
-      await _store.write(jsonEncode({'metrics': _metrics, 'days': _days}));
+      await _store.write(
+        jsonEncode({'metrics': _metrics, 'series': _series, 'days': _days}),
+      );
     } on Object {
       // The copy is a convenience; a failed write only loses it.
     }
@@ -55,13 +61,30 @@ class EvaluationCache {
     await _write();
   }
 
+  Future<void> saveSeries(EvaluationSeries series, {DateTime? now}) async {
+    if (series.model == null || series.items.isEmpty) return;
+    await _ensureLoaded();
+    _series = {
+      'saved': (now ?? DateTime.now()).toIso8601String(),
+      'data': series.toJson(),
+    };
+    await _write();
+  }
+
+  Future<EvaluationSeries?> series() async {
+    await _ensureLoaded();
+    final s = _series;
+    if (s == null) return null;
+    return EvaluationSeries.fromJson(s['data'] as Map<String, dynamic>)
+        .savedOn(DateTime.parse(s['saved'] as String));
+  }
+
   Future<ModelMetrics?> metrics() async {
     await _ensureLoaded();
     final m = _metrics;
     if (m == null) return null;
-    return ModelMetrics.fromJson(
-      m['data'] as Map<String, dynamic>,
-    ).savedOn(DateTime.parse(m['saved'] as String));
+    return ModelMetrics.fromJson(m['data'] as Map<String, dynamic>)
+        .savedOn(DateTime.parse(m['saved'] as String));
   }
 
   Future<void> saveEvaluation(
@@ -79,9 +102,8 @@ class EvaluationCache {
     day['saved'] = at;
     final oldest = _days.entries.toList()
       ..sort(
-        (a, b) => (a.value['saved'] as String).compareTo(
-          b.value['saved'] as String,
-        ),
+        (a, b) =>
+            (a.value['saved'] as String).compareTo(b.value['saved'] as String),
       );
     for (final e in oldest.take(
       (_days.length - maxDays).clamp(0, _days.length),
@@ -124,9 +146,8 @@ class EvaluationCache {
         (day['$order:$limit'] ?? day['worst:$exportLimit'])
             as Map<String, dynamic>?;
     if (entry == null) return null;
-    return EvaluationResult.fromJson(
-      entry['data'] as Map<String, dynamic>,
-    ).top(limit, order, DateTime.parse(entry['saved'] as String));
+    return EvaluationResult.fromJson(entry['data'] as Map<String, dynamic>)
+        .top(limit, order, DateTime.parse(entry['saved'] as String));
   }
 
   /// The 300-row copy needed for the Excel file exists.

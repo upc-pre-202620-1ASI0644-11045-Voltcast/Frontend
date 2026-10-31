@@ -35,9 +35,11 @@ Future<FakeInventoryBackend> _pump(
     MaterialApp(
       theme: AppTheme.light(),
       home: ChangeNotifierProvider(
-        create: (_) =>
-            InventoryController(repository, store: MemoryPendingSwapStore(), retryEvery: const Duration(hours: 1))
-              ..load(),
+        create: (_) => InventoryController(
+          repository,
+          store: MemoryPendingSwapStore(),
+          retryEvery: const Duration(hours: 1),
+        )..load(),
         child: screen,
       ),
     ),
@@ -52,10 +54,17 @@ Future<void> _tapKey(WidgetTester tester, String key) async {
   if (finder.evaluate().isEmpty) {
     // Off the line's screen, or on a later page of section A's row (A2…).
     final onPage = await _swipeRowUntil(tester, finder);
-    if (!onPage) await tester.dragUntilVisible(finder, find.byType(CustomScrollView), const Offset(0, -200));
+    if (!onPage) {
+      await tester.dragUntilVisible(
+        finder,
+        find.byType(CustomScrollView),
+        const Offset(0, -200),
+      );
+    }
   }
   // Only scroll when needed: ensureVisible would also move what is already on screen.
-  final screen = Offset.zero & (tester.view.physicalSize / tester.view.devicePixelRatio);
+  final screen =
+      Offset.zero & (tester.view.physicalSize / tester.view.devicePixelRatio);
   if (!screen.contains(tester.getCenter(finder))) {
     await tester.ensureVisible(finder);
     await tester.pumpAndSettle();
@@ -75,7 +84,10 @@ Future<bool> _swipeRowUntil(WidgetTester tester, Finder finder) async {
 /// Turns section A's row one cell forwards (1) or back (-1).
 Future<void> _turnRow(WidgetTester tester, int pages) async {
   final width = tester.view.physicalSize.width / tester.view.devicePixelRatio;
-  await tester.drag(find.byType(PageView).first, Offset(-pages * width * 0.6, 0));
+  await tester.drag(
+    find.byType(PageView).first,
+    Offset(-pages * width * 0.6, 0),
+  );
   await tester.pumpAndSettle();
 }
 
@@ -83,19 +95,27 @@ Future<void> _turnRow(WidgetTester tester, int pages) async {
 final _inView = find.byKey(const ValueKey('component-panel'));
 
 /// [text] on the component view's sheet (the line underneath shows serials too).
-Finder _inPanel(String text) => find.descendant(of: _inView, matching: find.text(text));
+Finder _inPanel(String text) =>
+    find.descendant(of: _inView, matching: find.text(text));
 
 void main() {
   testWidgets('greets the user by name and can sign out', (tester) async {
     var signedOut = false;
     await _pump(
       tester,
-      screen: CellScreen(userName: 'Oscar', userRole: 'Supervisor', onLogout: () => signedOut = true),
+      screen: CellScreen(
+        userName: 'Oscar',
+        userRole: 'Supervisor',
+        onLogout: () => signedOut = true,
+      ),
     );
 
     expect(find.text('Hola, Oscar'), findsOneWidget);
-    expect(find.text('Supervisor · 4 celdas'), findsOneWidget);
-    expect(find.byTooltip('Volver'), findsNothing); // the home tab has nowhere to go back to
+    expect(find.text('Se tienen 4 celdas'), findsOneWidget);
+    expect(
+      find.byTooltip('Volver'),
+      findsNothing,
+    ); // the home tab has nowhere to go back to
 
     await tester.tap(find.byTooltip('Cerrar sesión'));
     expect(signedOut, isTrue);
@@ -111,26 +131,44 @@ void main() {
     expect(find.text('1 celda'), findsNWidgets(2)); // B3, C4
   });
 
-  testWidgets('lays out 150 cells of a section in a row but only builds the visible ones', (tester) async {
-    final backend = FakeInventoryBackend();
-    backend.cells.addAll([
-      for (var i = 5; i <= 150; i++) {'id': i, 'name': 'L$i', 'barcode_value': null, 'is_visible': true},
-    ]);
-    await _pump(tester, backend: backend);
+  testWidgets(
+    'lays out 150 cells of a section in a row but only builds the visible ones',
+    (tester) async {
+      final backend = FakeInventoryBackend();
+      backend.cells.addAll([
+        for (var i = 5; i <= 150; i++)
+          {'id': i, 'name': 'L$i', 'barcode_value': null, 'is_visible': true},
+      ]);
+      await _pump(tester, backend: backend);
 
-    expect(find.text('150 celdas'), findsOneWidget);
-    await tester.dragUntilVisible(find.text('Celda L5'), find.byType(CustomScrollView), const Offset(0, -200));
-    expect(find.text('146 celdas · desliza →'), findsOneWidget);
-    expect(find.textContaining('Celda L'), findsWidgets);
-    expect(find.textContaining('Celda L').evaluate().length, lessThan(10));
+      expect(find.text('Se tienen 150 celdas'), findsOneWidget);
+      await tester.dragUntilVisible(
+        find.text('Celda L5'),
+        find.byType(CustomScrollView),
+        const Offset(0, -200),
+      );
+      expect(find.text('146 celdas · desliza →'), findsOneWidget);
+      expect(find.textContaining('Celda L'), findsWidgets);
+      expect(find.textContaining('Celda L').evaluate().length, lessThan(10));
 
-    // Pinned to the element: the finder through L5 stops matching once L5 is scrolled away.
-    final rowElement = find.ancestor(of: find.text('Celda L5'), matching: find.byType(Scrollable)).evaluate().first;
-    final row = find.byElementPredicate((e) => e == rowElement);
-    await tester.dragUntilVisible(find.text('Celda L150'), row, const Offset(-2000, 0));
-    expect(find.text('Celda L150'), findsOneWidget);
-    expect(find.text('Celda L5'), findsNothing); // scrolled out and disposed
-  });
+      // Pinned to the element: the finder through L5 stops matching once L5 is scrolled away.
+      final rowElement = find
+          .ancestor(
+            of: find.text('Celda L5'),
+            matching: find.byType(Scrollable),
+          )
+          .evaluate()
+          .first;
+      final row = find.byElementPredicate((e) => e == rowElement);
+      await tester.dragUntilVisible(
+        find.text('Celda L150'),
+        row,
+        const Offset(-2000, 0),
+      );
+      expect(find.text('Celda L150'), findsOneWidget);
+      expect(find.text('Celda L5'), findsNothing); // scrolled out and disposed
+    },
+  );
 
   testWidgets('the search box filters the cells by code', (tester) async {
     await _pump(tester, height: 1400);
@@ -143,49 +181,68 @@ void main() {
 
     await tester.enterText(find.byType(TextField), 'zzz');
     await tester.pumpAndSettle();
-    expect(find.text('Ninguna celda coincide con la búsqueda.'), findsOneWidget);
+    expect(
+      find.text('Ninguna celda coincide con la búsqueda.'),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('every cell is shown open, with no lid or open/close button', (tester) async {
+  testWidgets('every cell is shown open, with no lid or open/close button', (
+    tester,
+  ) async {
     await _pump(tester);
 
-    expect(find.byKey(const ValueKey('line-anode-1')), findsOneWidget); // A1 has both: still open
+    expect(
+      find.byKey(const ValueKey('line-anode-1')),
+      findsOneWidget,
+    ); // A1 has both: still open
     expect(find.byKey(const ValueKey('line-lid-1')), findsNothing);
     expect(find.text('Abrir celda'), findsNothing);
     expect(find.text('Cerrar celda'), findsNothing);
   });
 
-  testWidgets('tapping an anode flies into a view of that bar with its current data', (tester) async {
-    final backend = await _pump(tester);
-    final before = backend.requests.length;
+  testWidgets(
+    'tapping an anode flies into a view of that bar with its current data',
+    (tester) async {
+      final backend = await _pump(tester);
+      final before = backend.requests.length;
 
-    await _tapKey(tester, 'line-anode-1');
+      await _tapKey(tester, 'line-anode-1');
 
-    expect(_inView, findsOneWidget);
-    expect(_inPanel('ANO-001'), findsOneWidget);
-    expect(_inPanel('#2'), findsOneWidget);
-    expect(_inPanel('En uso'), findsNWidgets(2)); // pill + state
-    expect(_inPanel('CELL-00001'), findsOneWidget);
-    expect(find.textContaining('Actualizado a las'), findsNothing);
-    expect(backend.requests.length, greaterThan(before)); // fetched again on entering
+      expect(_inView, findsOneWidget);
+      expect(_inPanel('ANO-001'), findsOneWidget);
+      expect(_inPanel('#2'), findsOneWidget);
+      expect(_inPanel('En uso'), findsNWidgets(2)); // pill + state
+      expect(_inPanel('CELL-00001'), findsOneWidget);
+      expect(find.textContaining('Actualizado a las'), findsNothing);
+      expect(
+        backend.requests.length,
+        greaterThan(before),
+      ); // fetched again on entering
 
-    await tester.tap(find.byKey(const ValueKey('focus-cathode')));
-    await tester.pumpAndSettle();
-    expect(_inPanel('CAT-001'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('focus-cathode')));
+      await tester.pumpAndSettle();
+      expect(_inPanel('CAT-001'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Volver a la línea'));
-    await tester.pumpAndSettle();
-    expect(_inView, findsNothing);
-    expect(find.text('Celda A1'), findsOneWidget);
-  });
+      await tester.tap(find.byTooltip('Volver a la línea'));
+      await tester.pumpAndSettle();
+      expect(_inView, findsNothing);
+      expect(find.text('Celda A1'), findsOneWidget);
+    },
+  );
 
-  testWidgets('swiping turns the bar around its vertical axis only', (tester) async {
+  testWidgets('swiping turns the bar around its vertical axis only', (
+    tester,
+  ) async {
     await _pump(tester);
     await _tapKey(tester, 'line-cathode-1');
 
     final bar = find.byKey(const ValueKey('detail-bar'));
-    dynamic painter() =>
-        tester.widget<CustomPaint>(find.descendant(of: bar, matching: find.byType(CustomPaint))).painter;
+    dynamic painter() => tester
+        .widget<CustomPaint>(
+          find.descendant(of: bar, matching: find.byType(CustomPaint)),
+        )
+        .painter;
     final yaw = painter().yaw as double, pitch = painter().pitch as double;
 
     await tester.drag(bar, const Offset(120, 0));
@@ -195,7 +252,10 @@ void main() {
 
     await tester.drag(bar, const Offset(0, -60));
     await tester.pumpAndSettle();
-    expect(painter().pitch as double, pitch); // a vertical swipe does not tilt it
+    expect(
+      painter().pitch as double,
+      pitch,
+    ); // a vertical swipe does not tilt it
     expect(painter().yaw as double, spun);
     expect(_inView, findsOneWidget); // still in the view
   });
@@ -208,7 +268,9 @@ void main() {
     expect(find.text('Esta celda no tiene cátodo asignado.'), findsOneWidget);
   });
 
-  testWidgets('system back zooms out instead of leaving the screen', (tester) async {
+  testWidgets('system back zooms out instead of leaving the screen', (
+    tester,
+  ) async {
     await _pump(tester);
 
     await _tapKey(tester, 'line-anode-2');
@@ -220,11 +282,16 @@ void main() {
     expect(find.text('Celdas'), findsOneWidget);
   });
 
-  testWidgets('each cell has a code button: its barcode or "Generar código"', (tester) async {
+  testWidgets('each cell has a code button: its barcode or "Generar código"', (
+    tester,
+  ) async {
     await _pump(tester);
 
     expect(
-      find.descendant(of: find.byKey(const ValueKey('line-code-1')), matching: find.byTooltip('Código CELL-00001')),
+      find.descendant(
+        of: find.byKey(const ValueKey('line-code-1')),
+        matching: find.byTooltip('Código CELL-00001'),
+      ),
       findsOneWidget,
     );
     await _turnRow(tester, 1);
@@ -237,22 +304,25 @@ void main() {
     );
   });
 
-  testWidgets('a section shows one centred cell at a time and swipes to the next', (tester) async {
-    await _pump(tester);
+  testWidgets(
+    'a section shows one centred cell at a time and swipes to the next',
+    (tester) async {
+      await _pump(tester);
 
-    expect(find.text('Celda A1'), findsOneWidget);
-    expect(find.text('Celda A2'), findsNothing); // no peek of the next card
-    // Centred: the card's model and its last button sit the same distance from
-    // the screen's edges (16 gutter + 12 card padding).
-    final model = tester.getRect(find.byKey(const ValueKey('line-anode-1')));
-    final delete = tester.getRect(find.byTooltip('Deshabilitar celda').first);
-    expect(400 - delete.right, 28);
-    expect(model.left, greaterThan(28));
+      expect(find.text('Celda A1'), findsOneWidget);
+      expect(find.text('Celda A2'), findsNothing); // no peek of the next card
+      // Centred: the card's model and its last button sit the same distance from
+      // the screen's edges (16 gutter + 12 card padding).
+      final model = tester.getRect(find.byKey(const ValueKey('line-anode-1')));
+      final delete = tester.getRect(find.byTooltip('Deshabilitar celda').first);
+      expect(400 - delete.right, 28);
+      expect(model.left, greaterThan(28));
 
-    await _turnRow(tester, 1);
-    expect(find.text('Celda A2'), findsOneWidget);
-    expect(find.text('Celda A1'), findsNothing);
-  });
+      await _turnRow(tester, 1);
+      expect(find.text('Celda A2'), findsOneWidget);
+      expect(find.text('Celda A1'), findsNothing);
+    },
+  );
 
   testWidgets('"Ver componentes" opens the view on the anode', (tester) async {
     await _pump(tester);
@@ -262,16 +332,19 @@ void main() {
     expect(_inPanel('ANO-001'), findsOneWidget);
   });
 
-  testWidgets('a bar cannot be dragged onto another cell: swaps go through the swap screen', (tester) async {
-    final backend = await _pump(tester, height: 1400);
+  testWidgets(
+    'a bar cannot be dragged onto another cell: swaps go through the swap screen',
+    (tester) async {
+      final backend = await _pump(tester, height: 1400);
 
-    expect(find.byWidgetPredicate((w) => w is Draggable), findsNothing);
-    await _drag(tester, from: 'line-cathode-1', to: 'line-cathode-2');
+      expect(find.byWidgetPredicate((w) => w is Draggable), findsNothing);
+      await _drag(tester, from: 'line-cathode-1', to: 'line-cathode-2');
 
-    expect(find.text('¿Intercambiar componentes?'), findsNothing);
-    expect(backend.swapRequests, 0);
-    expect(backend.component(1)['cell_id'], 1);
-  });
+      expect(find.text('¿Intercambiar componentes?'), findsNothing);
+      expect(backend.swapRequests, 0);
+      expect(backend.component(1)['cell_id'], 1);
+    },
+  );
 
   group('CellScreen: component view and swaps', () {
     testWidgets('"Nueva" creates a cell', (tester) async {
@@ -300,10 +373,14 @@ void main() {
       expect(backend.cell(1)['name'], 'Z9');
     });
 
-    testWidgets('a cell without components is removed from the line', (tester) async {
+    testWidgets('a cell without components is removed from the line', (
+      tester,
+    ) async {
       final backend = await _pump(tester, height: 1400);
 
-      await tester.tap(find.byTooltip('Eliminar celda').first); // B3 (A1 has components)
+      await tester.tap(
+        find.byTooltip('Eliminar celda').first,
+      ); // B3 (A1 has components)
       await tester.pumpAndSettle();
       expect(find.text('¿Eliminar la celda B3?'), findsOneWidget);
       await tester.tap(find.text('Eliminar'));
@@ -313,25 +390,33 @@ void main() {
       expect(find.text('Celda B3'), findsNothing);
     });
 
-    testWidgets('the component view edits the component and explains why it cannot be disabled', (tester) async {
-      await _pump(tester);
-      await _tapKey(tester, 'line-anode-1');
+    testWidgets(
+      'the component view edits the component and explains why it cannot be disabled',
+      (tester) async {
+        await _pump(tester);
+        await _tapKey(tester, 'line-anode-1');
 
-      await tester.tap(_inPanel('Editar'));
-      await tester.pumpAndSettle();
-      expect(find.text('Editar componente'), findsOneWidget);
-      await tester.tap(find.text('Cancelar'));
-      await tester.pumpAndSettle();
+        await tester.tap(_inPanel('Editar'));
+        await tester.pumpAndSettle();
+        expect(find.text('Editar componente'), findsOneWidget);
+        await tester.tap(find.text('Cancelar'));
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Deshabilitar'));
-      await tester.pumpAndSettle();
-      expect(find.text('El componente está en uso'), findsOneWidget);
-    });
+        await tester.tap(find.text('Deshabilitar'));
+        await tester.pumpAndSettle();
+        expect(find.text('El componente está en uso'), findsOneWidget);
+      },
+    );
 
-    testWidgets('an empty slot is filled with a free component from its view', (tester) async {
+    testWidgets('an empty slot is filled with a free component from its view', (
+      tester,
+    ) async {
       final backend = await _pump(tester);
 
-      await _tapKey(tester, 'line-cathode-3'); // B3 has no cathode; CAT-099 is free
+      await _tapKey(
+        tester,
+        'line-cathode-3',
+      ); // B3 has no cathode; CAT-099 is free
       await tester.tap(find.text('Asignar componente'));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('free-5')));
@@ -346,13 +431,22 @@ void main() {
 /// Long-presses the zone [from] and moves to the zone [to], as a drag would. A
 /// zone on a later page of the same row is reached by holding at the right
 /// edge until the row turns to it.
-Future<void> _drag(WidgetTester tester, {required String from, required String to}) async {
+Future<void> _drag(
+  WidgetTester tester, {
+  required String from,
+  required String to,
+}) async {
   final start = tester.getCenter(find.byKey(ValueKey(from)));
   final gesture = await tester.startGesture(start);
   await tester.pump(kLongPressTimeout + const Duration(milliseconds: 100));
   final target = find.byKey(ValueKey(to));
   final width = tester.view.physicalSize.width / tester.view.devicePixelRatio;
-  for (var i = 0; i < 200 && (target.evaluate().isEmpty || tester.getCenter(target).dx > width); i++) {
+  for (
+    var i = 0;
+    i < 200 &&
+        (target.evaluate().isEmpty || tester.getCenter(target).dx > width);
+    i++
+  ) {
     await gesture.moveTo(Offset(width - 4 - (i % 2), start.dy));
     await tester.pump(const Duration(milliseconds: 100));
   }

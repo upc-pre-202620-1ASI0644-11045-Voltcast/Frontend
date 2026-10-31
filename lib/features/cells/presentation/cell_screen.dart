@@ -18,6 +18,7 @@ import 'component_actions.dart' show disableComponentWithChecks, showAssignSheet
 import 'inventory_controller.dart';
 import 'component_rotable_bar.dart';
 import 'sync_banner.dart';
+import '../../home/settings_menu.dart';
 
 const _tileExtent = 212.0;
 
@@ -139,13 +140,14 @@ class _CellScreenState extends State<CellScreen> with TickerProviderStateMixin {
   Widget _header(InventoryController inventory) {
     final name = widget.userName;
     return BrandHeader(
-      eyebrow: [
-        ?widget.userRole,
-        inventory.hasLoaded ? '${inventory.cells.length} celdas' : 'Línea de producción',
-      ].join(' · '),
+      eyebrow: '',
+      subtitle: !inventory.hasLoaded
+          ? 'Línea de producción'
+          : 'Se tienen ${inventory.cells.length} celdas',
       // The home tab: the line is what the user lands on after signing in.
       title: name == null ? 'Celdas' : 'Hola, $name',
       onLogout: widget.onLogout,
+      onSettings: settingsAction(context),
       action: HeaderAction(
         label: 'Nueva',
         onPressed: inventory.hasLoaded ? () => showCellSheet(context, inventory) : null,
@@ -349,6 +351,9 @@ class _CellScreenState extends State<CellScreen> with TickerProviderStateMixin {
             barKey: (type) => _barKey(cell.id, type),
             onTap: (type) => _enter(cell, type),
             onCode: () => context.push('/barcodes?cell=${cell.id}'),
+            onForecast: () => context.push(
+              Uri(path: '/forecasts/cell/${cell.id}', queryParameters: {'name': cell.name}).toString(),
+            ),
             onEdit: actionable ? () => showCellSheet(context, inventory, cell: cell) : null,
             onDisable: actionable ? () => removeCellWithChecks(context, cell) : null,
           ),
@@ -508,6 +513,7 @@ class _CellTile extends StatelessWidget {
     required this.barKey,
     required this.onTap,
     required this.onCode,
+    required this.onForecast,
     required this.onEdit,
     required this.onDisable,
   });
@@ -520,6 +526,9 @@ class _CellTile extends StatelessWidget {
   final ValueChanged<ComponentType> onTap;
 
   final VoidCallback onCode;
+
+  /// Opens the 180-day forecast of this cell.
+  final VoidCallback onForecast;
 
   /// Rename / remove the cell; null while it is busy.
   final VoidCallback? onEdit;
@@ -640,7 +649,36 @@ class _CellTile extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
             child: Row(
               children: [
-                const Spacer(),
+                // Violet: blue is for "Ver componentes", red/amber already mean alert.
+                Expanded(
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    // The same look as "Ver componentes >", in violet.
+                    child: InkWell(
+                      key: ValueKey('line-forecast-${cell.id}'),
+                      onTap: onForecast,
+                      borderRadius: BorderRadius.circular(6),
+                      child: const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 4),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Flexible(
+                              child: Text(
+                                'Ver pronóstico',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.violet),
+                              ),
+                            ),
+                            Icon(Icons.chevron_right, size: 18, color: AppColors.violet),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
                 // The barcode screen already generates, shows and downloads it.
                 CircleAction(
                   key: ValueKey('line-code-${cell.id}'),

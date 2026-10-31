@@ -7,19 +7,14 @@ import '../../../core/network/api_exception.dart';
 import '../../../core/submit_state.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_buttons.dart';
-import '../../../core/widgets/app_header.dart';
-import '../../../core/widgets/app_text_field.dart';
-import '../../../core/widgets/app_widgets.dart';
 import '../../../core/widgets/auth_visuals.dart';
 import '../../../core/widgets/load_error.dart';
-import '../../../core/widgets/screen_header.dart';
-import '../../cells/data/cell.dart';
-import '../../cells/presentation/inventory_controller.dart';
+import '../../../core/widgets/page_header.dart';
 import '../data/alert_rule.dart';
 import '../data/forecasting_repository.dart';
 import 'forecast_widgets.dart';
 
-/// Allowed voltage (supervisors only): the general limit and, optionally, one per cell.
+/// Allowed voltage (supervisors only): the general limit.
 class AlertRulesScreen extends StatefulWidget {
   const AlertRulesScreen({super.key});
 
@@ -29,12 +24,9 @@ class AlertRulesScreen extends StatefulWidget {
 
 class _AlertRulesScreenState extends State<AlertRulesScreen> with SubmitState {
   final _general = TextEditingController();
-  final _perCell = TextEditingController();
   List<AlertRule>? _rules;
   String? _loadError;
   String? _generalError;
-  String? _cellError;
-  Cell? _cell;
 
   @override
   void initState() {
@@ -45,7 +37,6 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> with SubmitState {
   @override
   void dispose() {
     _general.dispose();
-    _perCell.dispose();
     super.dispose();
   }
 
@@ -56,7 +47,13 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> with SubmitState {
       final rules = (await repository.alertRules())
           .where((r) => r.isActive)
           .toList();
-      if (mounted) setState(() => _rules = rules);
+      if (!mounted) return;
+      final general = rules.where((r) => r.cellId == null).firstOrNull;
+      // The field starts on the limit in force, ready to be edited.
+      if (general != null && _general.text.isEmpty) {
+        _general.text = general.maxVoltage.toStringAsFixed(2);
+      }
+      setState(() => _rules = rules);
     } on ApiException catch (e) {
       if (mounted) setState(() => _loadError = e.message);
     }
@@ -70,54 +67,38 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> with SubmitState {
     return ok ? value : null;
   }
 
-  Future<void> _save({required bool general}) async {
+  Future<void> _save() async {
     final repository = context.read<ForecastingRepository>();
     final messenger = ScaffoldMessenger.of(context);
-    final cell = _cell;
-    if (!general && cell == null) {
-      setState(() => _cellError = 'Elige una celda.');
-      return;
-    }
-    final value = general
-        ? _parse(_general, (e) => _generalError = e)
-        : _parse(_perCell, (e) => _cellError = e);
+    final value = _parse(_general, (e) => _generalError = e);
     if (value == null) return;
 
     final ok = await submit(() async {
-      await repository.setLimit(value, cellId: general ? null : cell!.id);
+      await repository.setLimit(value);
       await _load();
     });
     if (ok) {
       messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            general
-                ? 'Límite general guardado.'
-                : 'Límite de la celda ${cell!.name} guardado.',
-          ),
-        ),
+        const SnackBar(content: Text('Límite general guardado.')),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final cells = context.watch<InventoryController>().cells;
-    final names = {for (final c in cells) c.id: c.name};
     final rules = _rules;
     final general = rules?.where((r) => r.cellId == null).firstOrNull;
-    final byCell = rules?.where((r) => r.cellId != null).toList() ?? [];
 
     return Scaffold(
       backgroundColor: AppColors.surface,
       body: SafeArea(
         child: Column(
           children: [
-            ScreenHeader(
+            PageHeader(
+              eyebrow: 'Configuración · Supervisor',
               title: 'Límite de voltaje',
-              subtitle: 'Configuración · Supervisor',
               onBack: () =>
-                  context.canPop() ? context.pop() : context.go('/model'),
+                  context.canPop() ? context.pop() : context.go('/settings'),
             ),
             Expanded(
               child: rules == null
@@ -125,132 +106,127 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> with SubmitState {
                         ? LoadErrorView(message: _loadError!, onRetry: _load)
                         : const Center(child: CircularProgressIndicator()))
                   : ListView(
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(20),
                       children: [
                         if (error != null) ...[
                           ErrorBanner(error!),
                           const SizedBox(height: 12),
                         ],
-                        AppCard(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              const Text(
-                                'Límite general',
-                                style: TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                general == null
-                                    ? 'Aún no hay un límite general.'
-                                    : 'Actual: ${volts(general.maxVoltage, 2)}. Se aplica a todas las celdas sin límite propio.',
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  color: AppColors.muted,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              _VoltageField(
-                                label: 'Voltaje máximo (V)',
-                                controller: _general,
-                                error: _generalError,
-                              ),
-                              const SizedBox(height: 16),
-                              PrimaryButton(
-                                label: 'Guardar límite general',
-                                loading: loading,
-                                onPressed: () => _save(general: true),
-                              ),
-                            ],
+                        const SizedBox(height: 8),
+                        Center(
+                          child: Container(
+                            width: 64,
+                            height: 64,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFFFF1D6),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.bolt,
+                              size: 30,
+                              color: AppColors.amber,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 16),
-                        AppCard(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                        const Center(
+                          child: Text(
+                            'VOLTAJE MÁXIMO (V)',
+                            style: AppTheme.label,
+                          ),
+                        ),
+                        _VoltageField(
+                          controller: _general,
+                          error: _generalError,
+                        ),
+                        const SizedBox(height: 6),
+                        const Center(
+                          child: Text(
+                            'Aplicable a todas las celdas.',
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: AppColors.muted,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        const Divider(height: 1, color: Color(0xFFE3E7EE)),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          child: Row(
                             children: [
-                              const Text(
-                                'Límite por celda',
-                                style: TextStyle(
-                                  fontSize: 17,
+                              const Expanded(
+                                child: Text(
+                                  'Límite actual',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: AppColors.muted,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                general == null
+                                    ? 'Sin definir'
+                                    : volts(general.maxVoltage, 2),
+                                style: const TextStyle(
+                                  fontSize: 16,
                                   fontWeight: FontWeight.w800,
+                                  color: AppColors.ink,
                                 ),
-                              ),
-                              const SizedBox(height: 4),
-                              const Text(
-                                'Reemplaza al límite general solo para esa celda.',
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: AppColors.muted,
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              AppDropdown<Cell>(
-                                label: 'Celda',
-                                value: _cell,
-                                hint: 'Elige una celda',
-                                items: {
-                                  for (final c in cells) c: 'Celda ${c.name}',
-                                },
-                                onChanged: (c) => setState(() {
-                                  _cell = c;
-                                  _cellError = null;
-                                }),
-                              ),
-                              const SizedBox(height: 16),
-                              _VoltageField(
-                                label: 'Voltaje máximo (V)',
-                                controller: _perCell,
-                                error: _cellError,
-                              ),
-                              const SizedBox(height: 16),
-                              PrimaryButton(
-                                label: 'Guardar límite de la celda',
-                                loading: loading,
-                                onPressed: () => _save(general: false),
                               ),
                             ],
                           ),
                         ),
-                        if (byCell.isNotEmpty) ...[
-                          const SizedBox(height: 20),
-                          SectionTitle(
-                            'Límites por celda',
-                            trailing: '${byCell.length}',
+                        const Divider(height: 1, color: Color(0xFFE3E7EE)),
+                        const SizedBox(height: 20),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: AppColors.blueSoft,
+                            borderRadius: AppRadius.large,
                           ),
-                          const SizedBox(height: 10),
-                          for (final r in byCell)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: AppCard(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 12,
-                                ),
-                                child: Row(
+                          child: const Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                Icons.info_outline,
+                                size: 20,
+                                color: AppColors.blue,
+                              ),
+                              SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    Expanded(
-                                      child: Text(
-                                        'Celda ${names[r.cellId] ?? '#${r.cellId}'}',
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w700,
-                                        ),
+                                    Text(
+                                      'Umbral de alerta',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppColors.blue,
                                       ),
                                     ),
+                                    SizedBox(height: 4),
                                     Text(
-                                      volts(r.maxVoltage, 2),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
+                                      'Las celdas con un pronóstico superior a este máximo se resaltarán en Pronósticos.',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        height: 1.4,
+                                        color: AppColors.blue,
                                       ),
                                     ),
                                   ],
                                 ),
                               ),
-                            ),
-                        ],
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        PrimaryButton(
+                          label: 'Guardar límite',
+                          loading: loading,
+                          onPressed: _save,
+                        ),
                       ],
                     ),
             ),
@@ -262,13 +238,8 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> with SubmitState {
 }
 
 class _VoltageField extends StatelessWidget {
-  const _VoltageField({
-    required this.label,
-    required this.controller,
-    required this.error,
-  });
+  const _VoltageField({required this.controller, required this.error});
 
-  final String label;
   final TextEditingController controller;
   final String? error;
 
@@ -277,19 +248,43 @@ class _VoltageField extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        AppTextField(
-          label: label,
-          controller: controller,
-          hint: 'Ej. 3.50',
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
-          ],
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: TextField(
+            controller: controller,
+            textAlign: TextAlign.center,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
+            ],
+            style: const TextStyle(
+              fontSize: 56,
+              fontWeight: FontWeight.w800,
+              color: AppColors.blue,
+            ),
+            decoration: const InputDecoration(
+              hintText: '0.00',
+              hintStyle: TextStyle(color: AppColors.hint),
+              suffixText: 'V',
+              suffixStyle: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w500,
+                color: AppColors.muted,
+              ),
+              enabledBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: AppColors.ink, width: 1),
+              ),
+              focusedBorder: UnderlineInputBorder(
+                borderSide: BorderSide(color: AppColors.blue, width: 2),
+              ),
+            ),
+          ),
         ),
         if (error != null)
           Padding(
-            padding: const EdgeInsets.only(top: 6),
+            padding: const EdgeInsets.only(top: 8),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Icon(
                   Icons.error_outline,
@@ -297,7 +292,7 @@ class _VoltageField extends StatelessWidget {
                   color: AppColors.error,
                 ),
                 const SizedBox(width: 6),
-                Expanded(
+                Flexible(
                   child: Text(
                     error!,
                     style: const TextStyle(

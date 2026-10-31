@@ -138,28 +138,53 @@ void main() {
 
       expect(find.text('historico_oct.xlsx'), findsOneWidget);
       expect(find.text('Listo'), findsOneWidget);
-      expect(find.text('Con error'), findsOneWidget);
-      expect(find.text('Subir archivo'), findsOneWidget);
+      expect(
+        find.text('Con error'),
+        findsNWidgets(2),
+      ); // the filter chip and the pill
+      expect(find.text('Subir Excel'), findsOneWidget);
+    });
+
+    testWidgets('the search box and the filters narrow the list', (
+      tester,
+    ) async {
+      await _pump(tester, DatasetsScreen(pick: () => _picks('x.xlsx')));
+
+      await tester.tap(find.text('Listos'));
+      await tester.pump();
+      expect(find.text('historico_oct.xlsx'), findsOneWidget);
+      expect(find.text('Ningún archivo coincide.'), findsNothing);
+
+      await tester.tap(find.text('Todos'));
+      await tester.enterText(find.byType(TextField), 'zzz');
+      await tester.pump();
+      expect(find.text('historico_oct.xlsx'), findsNothing);
+      expect(find.text('Ningún archivo coincide.'), findsOneWidget);
     });
 
     testWidgets('an uploaded file appears "En cola"', (tester) async {
       await _pump(tester, DatasetsScreen(pick: () => _picks('nuevo.xlsx')));
 
-      await tester.tap(find.text('Subir archivo'));
+      await tester.tap(find.text('Subir Excel'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Elegir archivo'));
       await tester.pumpAndSettle();
 
       expect(find.text('nuevo.xlsx'), findsOneWidget);
       expect(find.text('En cola'), findsOneWidget);
+      // US001 E01: the upload is confirmed.
+      expect(find.textContaining('se subió correctamente'), findsOneWidget);
     });
 
     testWidgets('an unsupported file is explained without leaving the screen', (
       tester,
     ) async {
-      await _pump(tester, DatasetsScreen(pick: () => _picks('datos.csv')));
+      final backend = await _pump(
+        tester,
+        DatasetsScreen(pick: () => _picks('datos.csv')),
+      );
 
-      await tester.tap(find.text('Subir archivo'));
+      await tester.tap(find.text('Subir Excel'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Elegir archivo'));
       await tester.pumpAndSettle();
@@ -170,6 +195,8 @@ void main() {
       );
       expect(find.text('Archivos históricos'), findsOneWidget);
       expect(find.text('datos.csv'), findsNothing);
+      // Refused on the device: nothing was sent.
+      expect(backend.requests.where((r) => r.method == 'POST'), isEmpty);
     });
 
     testWidgets('cancelling the picker sends nothing', (tester) async {
@@ -178,7 +205,7 @@ void main() {
         DatasetsScreen(pick: () async => null),
       );
 
-      await tester.tap(find.text('Subir archivo'));
+      await tester.tap(find.text('Subir Excel'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Elegir archivo'));
       await tester.pumpAndSettle();
@@ -186,25 +213,34 @@ void main() {
       expect(backend.requests.where((r) => r.method == 'POST'), isEmpty);
     });
 
-    testWidgets('a file can complement a ready one and waits for confirmation', (tester) async {
-      final backend = await _pump(tester, DatasetsScreen(pick: () => _picks('nuevo.xlsx')));
+    testWidgets(
+      'a file can complement a ready one and waits for confirmation',
+      (tester) async {
+        final backend = await _pump(
+          tester,
+          DatasetsScreen(pick: () => _picks('nuevo.xlsx')),
+        );
 
-      await tester.tap(find.text('Subir archivo'));
-      await tester.pumpAndSettle();
-      expect(find.text('Este archivo complementa a:'), findsOneWidget);
-      await tester.tap(find.text('historico_oct.xlsx').last);
-      await tester.tap(find.text('Elegir archivo'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Subir Excel'));
+        await tester.pumpAndSettle();
+        expect(find.text('Este archivo complementa a:'), findsOneWidget);
+        await tester.tap(find.text('historico_oct.xlsx').last);
+        await tester.tap(find.text('Elegir archivo'));
+        await tester.pumpAndSettle();
 
-      final post = backend.requests.lastWhere((r) => r.method == 'POST');
-      expect(post.body, contains('name="base_dataset_id"'));
-      expect(find.text('Esperando tu confirmación'), findsOneWidget);
-    });
+        final post = backend.requests.lastWhere((r) => r.method == 'POST');
+        expect(post.body, contains('name="base_dataset_id"'));
+        expect(find.text('Esperando tu confirmación'), findsOneWidget);
+      },
+    );
 
     testWidgets('backing out of the chooser uploads nothing', (tester) async {
-      final backend = await _pump(tester, DatasetsScreen(pick: () => _picks('nuevo.xlsx')));
+      final backend = await _pump(
+        tester,
+        DatasetsScreen(pick: () => _picks('nuevo.xlsx')),
+      );
 
-      await tester.tap(find.text('Subir archivo'));
+      await tester.tap(find.text('Subir Excel'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Cancelar'));
       await tester.pumpAndSettle();
@@ -212,12 +248,24 @@ void main() {
       expect(backend.requests.where((r) => r.method == 'POST'), isEmpty);
     });
 
-    testWidgets('while a training runs the upload is disabled and says why', (tester) async {
-      final backend = FakeForecastingBackend()..trainings.add(FakeForecastingBackend.training(1, 'running'));
-      await _pump(tester, DatasetsScreen(pick: () => _picks('x.xlsx')), backend: backend);
+    testWidgets('while a training runs the upload is disabled and says why', (
+      tester,
+    ) async {
+      final backend = FakeForecastingBackend()
+        ..trainings.add(FakeForecastingBackend.training(1, 'running'));
+      await _pump(
+        tester,
+        DatasetsScreen(pick: () => _picks('x.xlsx')),
+        backend: backend,
+      );
 
-      expect(find.text('Hay un entrenamiento en curso; espera a que termine para subir un archivo.'), findsOneWidget);
-      await tester.tap(find.text('Subir archivo'));
+      expect(
+        find.text(
+          'Hay un entrenamiento en curso; espera a que termine para subir un archivo.',
+        ),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Subir Excel'));
       await tester.pumpAndSettle();
       expect(find.text('Este archivo complementa a:'), findsNothing);
       expect(backend.requests.where((r) => r.method == 'POST'), isEmpty);
@@ -245,10 +293,9 @@ void main() {
     ) async {
       final backend = await _pump(tester, const DatasetDetailScreen(id: 2));
 
-      expect(find.text('Celdas de la sección A'), findsOneWidget);
-      expect(find.text('150'), findsNWidgets(2));
+      expect(find.text('A · 150 / B · 150'), findsOneWidget);
       expect(find.text('300'), findsOneWidget);
-      expect(find.text('Celdas nuevas registradas'), findsOneWidget);
+      expect(find.text('Celdas nuevas'), findsOneWidget);
       expect(find.textContaining('01 ene 2024'), findsOneWidget);
 
       await tester.tap(find.text('Reintentar entrenamiento'));
@@ -278,36 +325,64 @@ void main() {
       );
     });
 
-    testWidgets('a ready file says the training starts by itself', (tester) async {
+    testWidgets('a ready file says the training starts by itself', (
+      tester,
+    ) async {
       await _pump(tester, const DatasetDetailScreen(id: 2));
 
       expect(find.textContaining('arranca solo'), findsOneWidget);
     });
 
-    testWidgets('a file waiting for confirmation explains the merge and continues', (tester) async {
-      final backend = FakeForecastingBackend()
-        ..datasets.insert(0, {
-          ...FakeForecastingBackend.dataset(3, 'nuevo.xlsx', 'awaiting_confirmation'),
-          'base_dataset_id': 2,
-        });
-      await _pump(tester, const DatasetDetailScreen(id: 3), backend: backend);
+    testWidgets(
+      'a file waiting for confirmation explains the merge and continues',
+      (tester) async {
+        final backend = FakeForecastingBackend()
+          ..datasets.insert(0, {
+            ...FakeForecastingBackend.dataset(
+              3,
+              'nuevo.xlsx',
+              'awaiting_confirmation',
+            ),
+            'base_dataset_id': 2,
+          });
+        await _pump(tester, const DatasetDetailScreen(id: 3), backend: backend);
 
-      expect(find.textContaining('El archivo cubre del 25 jun 2026 al 30 sep 2026'), findsOneWidget);
-      expect(find.textContaining('uno del 01 ene 2024 al 30 jun 2026'), findsOneWidget);
-      expect(find.textContaining('cubrirá 1004 días'), findsOneWidget);
-      expect(find.textContaining('6 días que se solapan'), findsOneWidget);
+        expect(
+          find.textContaining(
+            'El archivo cubre del 25 jun 2026 al 30 sep 2026',
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('uno del 01 ene 2024 al 30 jun 2026'),
+          findsOneWidget,
+        );
+        expect(find.textContaining('cubrirá 1004 días'), findsOneWidget);
+        expect(find.textContaining('6 días que se solapan'), findsOneWidget);
 
-      await tester.tap(find.text('Continuar'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Continuar'));
+        await tester.pumpAndSettle();
 
-      expect(backend.requests.any((r) => r.method == 'POST' && r.url.path == '/api/v1/datasets/3/confirm'), isTrue);
-      expect(find.text('En cola'), findsOneWidget);
-    });
+        expect(
+          backend.requests.any(
+            (r) =>
+                r.method == 'POST' &&
+                r.url.path == '/api/v1/datasets/3/confirm',
+          ),
+          isTrue,
+        );
+        expect(find.text('En cola'), findsOneWidget);
+      },
+    );
 
     testWidgets('Cancelar only closes the message', (tester) async {
       final backend = FakeForecastingBackend()
         ..datasets.insert(0, {
-          ...FakeForecastingBackend.dataset(3, 'nuevo.xlsx', 'awaiting_confirmation'),
+          ...FakeForecastingBackend.dataset(
+            3,
+            'nuevo.xlsx',
+            'awaiting_confirmation',
+          ),
           'base_dataset_id': 2,
         });
       await _pump(tester, const DatasetDetailScreen(id: 3), backend: backend);
@@ -315,7 +390,10 @@ void main() {
       await tester.tap(find.text('Cancelar'));
       await tester.pumpAndSettle();
 
-      expect(backend.requests.where((r) => r.url.path.endsWith('/confirm')), isEmpty);
+      expect(
+        backend.requests.where((r) => r.url.path.endsWith('/confirm')),
+        isEmpty,
+      );
       expect(backend.datasets.first['upload_status'], 'awaiting_confirmation');
     });
 

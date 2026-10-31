@@ -26,6 +26,7 @@ import 'features/auth/presentation/screens/login_screen.dart';
 import 'features/auth/presentation/screens/register_screen.dart';
 import 'features/auth/presentation/screens/reset_args.dart';
 import 'features/home/main_shell.dart';
+import 'features/home/settings_screen.dart';
 import 'features/users/presentation/users_screen.dart';
 import 'splash_screen.dart';
 
@@ -120,15 +121,6 @@ GoRouter buildRouter(AuthController auth) {
                   ),
                 ],
               ),
-              StatefulShellBranch(
-                routes: [
-                  GoRoute(
-                    path: '/model',
-                    builder: (_, _) =>
-                        const ModelScreen(export: shareEvaluationXlsx),
-                  ),
-                ],
-              ),
             ],
           ),
           // Open over the bar.
@@ -154,6 +146,11 @@ GoRouter buildRouter(AuthController auth) {
               );
             },
           ),
+          GoRoute(
+            path: '/model',
+            builder: (_, _) => const ModelScreen(export: shareEvaluationXlsx),
+          ),
+          GoRoute(path: '/settings', builder: (_, _) => const SettingsScreen()),
           GoRoute(path: '/datasets', builder: (_, _) => const DatasetsScreen()),
           GoRoute(
             path: '/datasets/:id',

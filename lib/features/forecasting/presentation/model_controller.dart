@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../../core/network/api_exception.dart';
 import '../data/evaluation.dart';
 import '../data/evaluation_cache.dart';
+import '../data/evaluation_series.dart';
 import '../data/forecast.dart';
 import '../data/forecasting_repository.dart';
 
@@ -16,8 +17,9 @@ class ModelController extends ChangeNotifier {
 
   ModelMetrics? _metrics;
   EvaluationResult? _evaluation;
+  EvaluationSeries? _series;
+  String? _seriesError;
   DateTime? _date;
-  String _order = 'worst';
   bool _loading = false;
   bool _evaluating = false;
   bool _offline = false;
@@ -33,8 +35,16 @@ class ModelController extends ChangeNotifier {
   EvaluationResult? get evaluation => _evaluation;
   DateTime? get date => _date;
 
-  /// `worst` or `best`.
-  String get order => _order;
+  /// Mean error per day for the chart; asked once, in [load].
+  EvaluationSeries? get series => _series;
+  String? get seriesError => _seriesError;
+
+  /// The validation range, from the series or else from the table's answer.
+  ({DateTime from, DateTime to})? get availableRange {
+    final from = _series?.availableFrom ?? _evaluation?.availableFrom;
+    final to = _series?.availableTo ?? _evaluation?.availableTo;
+    return from == null || to == null ? null : (from: from, to: to);
+  }
 
   /// First load of the screen.
   bool get loading => _loading;
@@ -67,9 +77,9 @@ class ModelController extends ChangeNotifier {
 
   bool isSelectable(DateTime day) {
     if (_offline) return _offlineDates.any((d) => d == day);
-    final from = _evaluation?.availableFrom, to = _evaluation?.availableTo;
-    if (from == null || to == null) return false;
-    return !day.isBefore(from) && !day.isAfter(to);
+    final range = availableRange;
+    if (range == null) return false;
+    return !day.isBefore(range.from) && !day.isAfter(range.to);
   }
 
   /// First and last day the picker may show, or null when there is none.
@@ -79,8 +89,8 @@ class ModelController extends ChangeNotifier {
           ? null
           : (first: _offlineDates.first, last: _offlineDates.last);
     }
-    final from = _evaluation?.availableFrom, to = _evaluation?.availableTo;
-    return from == null || to == null ? null : (first: from, last: to);
+    final range = availableRange;
+    return range == null ? null : (first: range.from, last: range.to);
   }
 
   EvaluationCache get _cache => _repository.evaluationCache;
@@ -100,19 +110,33 @@ class ModelController extends ChangeNotifier {
         _error = e.message;
       }
     }
-    if (_error == null && !noModel) await _loadEvaluation();
+    if (_error == null && !noModel) {
+      await Future.wait([_loadEvaluation(), _loadSeries()]);
+    }
     _loading = false;
     notifyListeners();
   }
 
-  Future<void> setDate(DateTime day) {
-    _date = day;
-    return _loadEvaluation();
+  Future<void> retrySeries() async {
+    await _loadSeries();
+    notifyListeners();
   }
 
-  Future<void> setOrder(String order) {
-    if (order == _order) return Future.value();
-    _order = order;
+  Future<void> _loadSeries() async {
+    _seriesError = null;
+    try {
+      _series = await _repository.evaluationSeries();
+    } on ApiException catch (e) {
+      if (e.isOffline) {
+        _series = await _cache.series();
+      } else {
+        _seriesError = e.message;
+      }
+    }
+  }
+
+  Future<void> setDate(DateTime day) {
+    _date = day;
     return _loadEvaluation();
   }
 
@@ -124,7 +148,7 @@ class ModelController extends ChangeNotifier {
     _evaluationError = null;
     notifyListeners();
     try {
-      final result = await _repository.evaluation(date: _date, order: _order);
+      final result = await _repository.evaluation(date: _date);
       if (seq != _seq) return;
       _evaluation = result;
       _date = result.date ?? _date;
@@ -135,8 +159,7 @@ class ModelController extends ChangeNotifier {
         await _fromDevice();
       } else if (e.statusCode == 400) {
         // The API refuses a date outside its range: say so and fall back into the range.
-        _evaluationError =
-            'No hay datos de comparación para esa fecha. Elige otra dentro del rango disponible.';
+        _evaluationError = 'No hay datos de comparación para esa fecha. Elige otra dentro del rango disponible.';
         _date = _clamp(_date);
       } else if (e.statusCode == 404) {
         _evaluationError = 'No se encontró la comparación solicitada.';
@@ -163,9 +186,7 @@ class ModelController extends ChangeNotifier {
     final day = (_date != null && _offlineDates.contains(_date))
         ? _date
         : await _cache.lastViewedDate();
-    _evaluation = day == null
-        ? null
-        : await _cache.evaluation(day, order: _order);
+    _evaluation = day == null ? null : await _cache.evaluation(day);
     _date = day;
     _canExportOffline = day != null && await _cache.hasAll(day);
   }

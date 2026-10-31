@@ -11,7 +11,7 @@ import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_header.dart';
 import '../../../core/widgets/auth_visuals.dart';
 import '../../../core/widgets/load_error.dart';
-import '../../../core/widgets/screen_header.dart';
+import '../../../core/widgets/page_header.dart';
 import '../../forecasting/data/forecasting_repository.dart';
 import '../data/dataset.dart';
 import 'datasets_controller.dart';
@@ -78,11 +78,9 @@ class _DatasetDetailScreenState extends State<DatasetDetailScreen> {
       body: SafeArea(
         child: Column(
           children: [
-            ScreenHeader(
+            PageHeader(
+              eyebrow: 'Detalle del archivo',
               title: d?.filename ?? 'Archivo',
-              subtitle: d == null
-                  ? 'Detalle del archivo'
-                  : 'Subido el ${formatDateTime(d.createdAt)}',
               onBack: () =>
                   context.canPop() ? context.pop() : context.go('/datasets'),
             ),
@@ -107,8 +105,26 @@ class _DatasetDetailScreenState extends State<DatasetDetailScreen> {
 
   List<Widget> _content(Dataset d) {
     return [
-      Align(alignment: Alignment.centerLeft, child: datasetPill(d.status)),
-      const SizedBox(height: 14),
+      Row(
+        children: [
+          const ExcelIcon(size: 56),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                datasetPill(d.status),
+                const SizedBox(height: 6),
+                Text(
+                  'Subido el ${formatDateTime(d.createdAt)}',
+                  style: const TextStyle(fontSize: 13, color: AppColors.muted),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 16),
       switch (d.status) {
         DatasetStatus.raw || DatasetStatus.cleaning => AppCard(
           child: Text(
@@ -186,16 +202,20 @@ class _Summary extends StatelessWidget {
           AppCard(
             child: Column(
               children: [
-                for (final e in s.sections.entries)
-                  _Row('Celdas de la sección ${e.key}', '${e.value}'),
-                _Row('Celdas en total', '${s.cellCount}'),
+                _Row(
+                  'Secciones',
+                  s.sections.entries
+                      .map((e) => '${e.key} · ${e.value}')
+                      .join(' / '),
+                ),
+                _Row('Celdas', '${s.cellCount}'),
                 if (s.dateFrom != null && s.dateTo != null)
                   _Row(
-                    'Rango de fechas',
+                    'Periodo',
                     '${formatShortDate(s.dateFrom!)} – ${formatShortDate(s.dateTo!)}',
                   ),
-                _Row('Días cubiertos', '${s.days}'),
-                _Row('Celdas nuevas registradas', '${s.newCells}'),
+                _Row('Días', '${s.days}'),
+                _Row('Celdas nuevas', '${s.newCells}', last: true),
               ],
             ),
           ),
@@ -286,15 +306,21 @@ class _MergeConfirmation extends StatelessWidget {
 }
 
 class _Row extends StatelessWidget {
-  const _Row(this.label, this.value);
+  const _Row(this.label, this.value, {this.last = false});
 
   final String label;
   final String value;
+  final bool last;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      decoration: BoxDecoration(
+        border: last
+            ? null
+            : const Border(bottom: BorderSide(color: Color(0xFFF0F1F4))),
+      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

@@ -1,26 +1,15 @@
 import '../../../core/format.dart';
 
+/// That a model has been trained. The API also sends its id, name and version,
+/// but nothing on screen uses them, so they are not read: only whether `model`
+/// came at all (null means "no trained model yet").
 class ModelInfo {
-  const ModelInfo({
-    required this.id,
-    required this.name,
-    required this.version,
-  });
+  const ModelInfo();
 
-  final int id;
-  final String name;
-  final String version;
-
-  factory ModelInfo.fromJson(Map<String, dynamic> json) => ModelInfo(
-    id: json['id'] as int,
-    name: json['name'] as String,
-    version: json['version'] as String,
-  );
-
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'version': version};
+  Map<String, dynamic> toJson() => const {};
 
   static ModelInfo? maybe(Object? json) =>
-      json is Map<String, dynamic> ? ModelInfo.fromJson(json) : null;
+      json is Map<String, dynamic> ? const ModelInfo() : null;
 }
 
 class ForecastItem {
@@ -59,6 +48,33 @@ class ForecastItem {
     'max_voltage': maxVoltage,
     'exceeds': exceeds,
   };
+}
+
+/// A run of consecutive days over the limit.
+typedef ExceedRange = ({DateTime from, DateTime to, int days});
+
+/// The days over the limit of one cell grouped into runs of consecutive days, so
+/// 180 days in a row read as one line. [items] oldest first; a missing day (a gap
+/// in the offline copy) ends a run.
+List<ExceedRange> exceedRanges(List<ForecastItem> items) {
+  int index(DateTime d) =>
+      DateTime.utc(d.year, d.month, d.day).millisecondsSinceEpoch ~/
+      Duration.millisecondsPerDay;
+  final runs = <ExceedRange>[];
+  for (final item in items) {
+    if (!item.exceeds) continue;
+    final last = runs.isEmpty ? null : runs.last;
+    if (last != null && index(item.date) == index(last.to) + 1) {
+      runs[runs.length - 1] = (
+        from: last.from,
+        to: item.date,
+        days: last.days + 1,
+      );
+    } else {
+      runs.add((from: item.date, to: item.date, days: 1));
+    }
+  }
+  return runs;
 }
 
 class ForecastResult {

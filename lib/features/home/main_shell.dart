@@ -13,11 +13,10 @@ abstract final class MainTabs {
   static const inventory = 1;
   static const users = 2;
   static const forecasts = 3;
-  static const model = 4;
 }
 
 /// Signed-in frame: a bottom bar with Inicio (the cell line), Pronósticos,
-/// Modelo, Inventario and, for supervisors, Usuarios with the pending-requests count.
+/// Inventario and, for supervisors, Usuarios with the pending-requests count.
 /// Each tab keeps its own state while the others are shown.
 class MainShell extends StatefulWidget {
   const MainShell({super.key, required this.shell});
@@ -66,7 +65,6 @@ class _MainShellState extends State<MainShell> {
     final branches = [
       MainTabs.home,
       MainTabs.forecasts,
-      MainTabs.model,
       MainTabs.inventory,
       if (isAdmin) MainTabs.users,
     ];
@@ -86,12 +84,6 @@ class _MainShellState extends State<MainShell> {
         icon: _icon(Icons.show_chart),
         label: 'Pronósticos',
         tooltip: 'Pronósticos',
-        badge: 0,
-      ),
-      (
-        icon: _icon(Icons.model_training),
-        label: 'Modelo',
-        tooltip: 'Modelo',
         badge: 0,
       ),
       (

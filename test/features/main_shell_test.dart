@@ -52,13 +52,7 @@ Future<FakeUsersBackend> _pump(
       StatefulShellRoute.indexedStack(
         builder: (_, _, shell) => MainShell(shell: shell),
         branches: [
-          for (final path in [
-            '/line',
-            '/storage',
-            '/users',
-            '/forecasts',
-            '/model',
-          ])
+          for (final path in ['/line', '/storage', '/users', '/forecasts'])
             StatefulShellBranch(
               routes: [
                 GoRoute(
@@ -118,7 +112,9 @@ void main() {
     expect(find.text('screen /line'), findsOneWidget);
   });
 
-  testWidgets('Pronósticos and Modelo are tabs of every role', (tester) async {
+  testWidgets('Pronósticos is a tab of every role, Modelo is not', (
+    tester,
+  ) async {
     await _pump(tester, role: 'USER');
 
     await tester.tap(find.byTooltip('Pronósticos'));
@@ -129,9 +125,7 @@ void main() {
       findsOneWidget,
     ); // the current tab spells its name
 
-    await tester.tap(find.byTooltip('Modelo'));
-    await tester.pumpAndSettle();
-    expect(find.text('screen /model'), findsOneWidget);
+    expect(find.byTooltip('Modelo'), findsNothing);
   });
 
   testWidgets(

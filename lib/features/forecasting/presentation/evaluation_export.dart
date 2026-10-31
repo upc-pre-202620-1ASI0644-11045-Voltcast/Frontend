@@ -18,8 +18,8 @@ Uint8List evaluationXlsx(List<EvaluationItem> rows) {
   sheet.appendRow([
     for (final h in [
       'Celda',
-      'Voltaje real (V)',
-      'Voltaje pronosticado (V)',
+      'V. Real',
+      'Pronóstico',
       'Diferencia (V)',
       'Error (%)',
     ])
