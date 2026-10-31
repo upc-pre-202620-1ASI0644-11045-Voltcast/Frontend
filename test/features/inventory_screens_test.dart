@@ -57,7 +57,7 @@ Future<_Harness> _pump(
           child: child,
         ),
         routes: [
-          GoRoute(path: '/line', builder: (_, _) => const ProductionLineScreen()),
+          GoRoute(path: '/line', builder: (_, _) => const CellScreen()),
           GoRoute(path: '/storage', builder: (_, _) => const StorageScreen()),
           GoRoute(
             path: '/swap',
@@ -119,7 +119,7 @@ Finder _menuOption(String text) =>
 
 /// Goes to the inventory, as its tab in the bottom bar does.
 Future<void> _openStorage(WidgetTester tester) async {
-  GoRouter.of(tester.element(find.byType(ProductionLineScreen))).go('/storage');
+  GoRouter.of(tester.element(find.byType(CellScreen))).go('/storage');
   await tester.pumpAndSettle();
 }
 
@@ -146,9 +146,9 @@ Future<void> _pick(WidgetTester tester, {required String label, required String 
 }
 
 void main() {
-  // The production line replaced the cells and components screens: the same
+  // The cell screen (the line of cells) holds the old cells and components flows: the same
   // sheets and flows, opened from the line, its component view and its storage.
-  group('ProductionLineScreen: cells', () {
+  group('CellScreen: cells', () {
     testWidgets('shows stats and every cell with its state', (tester) async {
       await _pump(tester);
 
@@ -352,7 +352,7 @@ void main() {
     });
   });
 
-  group('ProductionLineScreen: components', () {
+  group('CellScreen: components', () {
     testWidgets('the storage shows the stats and the components outside the cells', (tester) async {
       await _pump(tester);
       await _openStorage(tester);

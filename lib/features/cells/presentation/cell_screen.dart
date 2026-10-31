@@ -26,8 +26,8 @@ const _tileExtent = 212.0;
 /// tapped to fly into a view of that bar with the component as the backend
 /// has it now. Swaps are done on the
 /// swap screen.
-class ProductionLineScreen extends StatefulWidget {
-  const ProductionLineScreen({super.key, this.userName, this.userRole, this.onLogout});
+class CellScreen extends StatefulWidget {
+  const CellScreen({super.key, this.userName, this.userRole, this.onLogout});
 
   /// First name for the greeting; the home tab passes the signed-in user's.
   final String? userName;
@@ -37,10 +37,10 @@ class ProductionLineScreen extends StatefulWidget {
   final VoidCallback? onLogout;
 
   @override
-  State<ProductionLineScreen> createState() => _ProductionLineScreenState();
+  State<CellScreen> createState() => _CellScreenState();
 }
 
-class _ProductionLineScreenState extends State<ProductionLineScreen> with TickerProviderStateMixin {
+class _CellScreenState extends State<CellScreen> with TickerProviderStateMixin {
   final _scroll = ScrollController();
   final _stackKey = GlobalKey();
   final _tileKeys = <String, GlobalKey>{};
@@ -62,7 +62,6 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
   int? _cellId;
   ComponentType _focus = ComponentType.anode;
   Rect? _origin;
-  DateTime? _refreshedAt;
 
   @override
   void dispose() {
@@ -113,10 +112,7 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
 
   /// There is no per-id endpoint: the lists are fetched again and the panel
   /// reads the component with that id from them.
-  Future<void> _refresh() async {
-    await context.read<InventoryController>().load();
-    if (mounted) setState(() => _refreshedAt = DateTime.now());
-  }
+  Future<void> _refresh() => context.read<InventoryController>().load();
 
   Future<void> _exit() async {
     if (_cellId == null || _zoom.status == AnimationStatus.reverse) return;
@@ -220,7 +216,6 @@ class _ProductionLineScreenState extends State<ProductionLineScreen> with Ticker
                     focus: _focus,
                     loading: inventory.loading,
                     error: inventory.loadError,
-                    refreshedAt: _refreshedAt,
                     onFocus: (type) => setState(() => _focus = type),
                     onRefresh: _refresh,
                     onBack: _exit,
@@ -974,7 +969,6 @@ class _ComponentDetail extends StatelessWidget {
     required this.focus,
     required this.loading,
     required this.error,
-    required this.refreshedAt,
     required this.onFocus,
     required this.onRefresh,
     required this.onBack,
@@ -990,7 +984,6 @@ class _ComponentDetail extends StatelessWidget {
   final ComponentType focus;
   final bool loading;
   final String? error;
-  final DateTime? refreshedAt;
   final ValueChanged<ComponentType> onFocus;
   final VoidCallback onRefresh;
   final VoidCallback onBack;
@@ -1109,7 +1102,6 @@ class _ComponentDetail extends StatelessWidget {
                 component: component,
                 loading: loading,
                 error: error,
-                refreshedAt: refreshedAt,
                 // A cell far along the line is picked there instead of dragged to.
                 footer: component == null
                     ? null
@@ -1236,7 +1228,6 @@ class FreeComponentScreen extends StatelessWidget {
               component: c,
               loading: inventory.loading,
               error: inventory.loadError,
-              refreshedAt: null,
               footer: TextButton.icon(
                 key: const ValueKey('assign-to-cell'),
                 onPressed: busy ? null : () => showAssignSheet(context, inventory, c),
@@ -1373,7 +1364,6 @@ class _ComponentPanel extends StatelessWidget {
     required this.component,
     required this.loading,
     required this.error,
-    required this.refreshedAt,
     required this.actions,
     this.footer,
   });
@@ -1384,13 +1374,10 @@ class _ComponentPanel extends StatelessWidget {
   final Component? component;
   final bool loading;
   final String? error;
-  final DateTime? refreshedAt;
   final List<Widget> actions;
 
   /// Under the actions: the way to the swap screen.
   final Widget? footer;
-
-  static String _time(DateTime t) => [t.hour, t.minute, t.second].map((n) => n.toString().padLeft(2, '0')).join(':');
 
   @override
   Widget build(BuildContext context) {
@@ -1502,14 +1489,6 @@ class _ComponentPanel extends StatelessWidget {
           if (error != null) ...[
             const SizedBox(height: 10),
             Text(error!, style: const TextStyle(fontSize: 13, color: AppColors.error)),
-          ],
-          if (refreshedAt != null) ...[
-            const SizedBox(height: 10),
-            Text(
-              'Actualizado a las ${_time(refreshedAt!)}',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 12, color: AppColors.muted),
-            ),
           ],
         ],
       ),

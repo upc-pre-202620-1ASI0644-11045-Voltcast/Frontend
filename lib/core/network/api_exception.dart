@@ -6,6 +6,9 @@ class ApiException implements Exception {
 
   bool get isUnauthorized => statusCode == 401;
 
+  /// No answer from the server (no network, timeout): offline mode applies.
+  bool get isOffline => statusCode == null;
+
   @override
   String toString() => message;
 }

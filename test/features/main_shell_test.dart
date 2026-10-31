@@ -29,13 +29,22 @@ class _SignedIn extends AuthController {
   AuthUser? get user => _user;
 }
 
-Future<FakeUsersBackend> _pump(WidgetTester tester, {required String? role}) async {
+Future<FakeUsersBackend> _pump(
+  WidgetTester tester, {
+  required String? role,
+}) async {
   final backend = FakeUsersBackend();
   final api = ApiClient(
     tokenStorage: MemoryTokens(access: 'token'),
     httpClient: backend.client,
   );
-  final user = AuthUser(id: 1, email: 'o@voltcast.io', fullName: 'Oscar Aranda', status: 'active', role: role);
+  final user = AuthUser(
+    id: 1,
+    email: 'o@voltcast.io',
+    fullName: 'Oscar Aranda',
+    status: 'active',
+    role: role,
+  );
 
   final router = GoRouter(
     initialLocation: '/line',
@@ -43,7 +52,13 @@ Future<FakeUsersBackend> _pump(WidgetTester tester, {required String? role}) asy
       StatefulShellRoute.indexedStack(
         builder: (_, _, shell) => MainShell(shell: shell),
         branches: [
-          for (final path in ['/line', '/storage', '/users'])
+          for (final path in [
+            '/line',
+            '/storage',
+            '/users',
+            '/forecasts',
+            '/model',
+          ])
             StatefulShellBranch(
               routes: [
                 GoRoute(
@@ -61,7 +76,9 @@ Future<FakeUsersBackend> _pump(WidgetTester tester, {required String? role}) asy
   await tester.pumpWidget(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider<AuthController>(create: (_) => _SignedIn(user, api)),
+        ChangeNotifierProvider<AuthController>(
+          create: (_) => _SignedIn(user, api),
+        ),
         Provider<UsersRepository>.value(value: UsersRepository(api)),
       ],
       child: MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
@@ -72,15 +89,20 @@ Future<FakeUsersBackend> _pump(WidgetTester tester, {required String? role}) asy
 }
 
 void main() {
-  testWidgets('the app opens on Inicio, the production line', (tester) async {
+  testWidgets('the app opens on Inicio, the cell line', (tester) async {
     await _pump(tester, role: 'USER');
 
     expect(find.text('screen /line'), findsOneWidget);
-    expect(find.text('Inicio'), findsOneWidget); // the current tab spells its name
+    expect(
+      find.text('Inicio'),
+      findsOneWidget,
+    ); // the current tab spells its name
     expect(find.text('Inventario'), findsNothing); // the others are icons
   });
 
-  testWidgets('an engineer gets Inicio and Inventario, but not Usuarios', (tester) async {
+  testWidgets('an engineer gets Inicio and Inventario, but not Usuarios', (
+    tester,
+  ) async {
     await _pump(tester, role: 'USER');
 
     expect(find.byTooltip('Inventario'), findsOneWidget);
@@ -96,21 +118,43 @@ void main() {
     expect(find.text('screen /line'), findsOneWidget);
   });
 
-  testWidgets('a supervisor also gets Usuarios, with the pending requests counted', (tester) async {
-    final backend = await _pump(tester, role: 'ADMIN');
+  testWidgets('Pronósticos and Modelo are tabs of every role', (tester) async {
+    await _pump(tester, role: 'USER');
 
-    expect(find.byTooltip('Usuarios: 2 solicitudes pendientes'), findsOneWidget);
-    expect(find.text('2'), findsWidgets); // Mariana Torres and Diego Salcedo
-
-    await tester.tap(find.byTooltip('Usuarios: 2 solicitudes pendientes'));
+    await tester.tap(find.byTooltip('Pronósticos'));
     await tester.pumpAndSettle();
-    expect(find.text('screen /users'), findsOneWidget);
+    expect(find.text('screen /forecasts'), findsOneWidget);
+    expect(
+      find.text('Pronósticos'),
+      findsOneWidget,
+    ); // the current tab spells its name
 
-    // A request handled in the Usuarios tab is reflected when leaving it.
-    backend.users.firstWhere((u) => u['id'] == 4)['status'] = 'active';
-    await tester.tap(find.byTooltip('Inicio'));
+    await tester.tap(find.byTooltip('Modelo'));
     await tester.pumpAndSettle();
-    expect(find.text('1'), findsWidgets);
-    expect(find.byTooltip('Usuarios: 1 solicitud pendiente'), findsOneWidget);
+    expect(find.text('screen /model'), findsOneWidget);
   });
+
+  testWidgets(
+    'a supervisor also gets Usuarios, with the pending requests counted',
+    (tester) async {
+      final backend = await _pump(tester, role: 'ADMIN');
+
+      expect(
+        find.byTooltip('Usuarios: 2 solicitudes pendientes'),
+        findsOneWidget,
+      );
+      expect(find.text('2'), findsWidgets); // Mariana Torres and Diego Salcedo
+
+      await tester.tap(find.byTooltip('Usuarios: 2 solicitudes pendientes'));
+      await tester.pumpAndSettle();
+      expect(find.text('screen /users'), findsOneWidget);
+
+      // A request handled in the Usuarios tab is reflected when leaving it.
+      backend.users.firstWhere((u) => u['id'] == 4)['status'] = 'active';
+      await tester.tap(find.byTooltip('Inicio'));
+      await tester.pumpAndSettle();
+      expect(find.text('1'), findsWidgets);
+      expect(find.byTooltip('Usuarios: 1 solicitud pendiente'), findsOneWidget);
+    },
+  );
 }

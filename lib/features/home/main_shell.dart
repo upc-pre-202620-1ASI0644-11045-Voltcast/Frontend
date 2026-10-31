@@ -12,10 +12,12 @@ abstract final class MainTabs {
   static const home = 0;
   static const inventory = 1;
   static const users = 2;
+  static const forecasts = 3;
+  static const model = 4;
 }
 
-/// Signed-in frame: a bottom bar with Inicio (the production line),
-/// Inventario and, for supervisors, Usuarios with the pending-requests count.
+/// Signed-in frame: a bottom bar with Inicio (the cell line), Pronósticos,
+/// Modelo, Inventario and, for supervisors, Usuarios with the pending-requests count.
 /// Each tab keeps its own state while the others are shown.
 class MainShell extends StatefulWidget {
   const MainShell({super.key, required this.shell});
@@ -38,7 +40,9 @@ class _MainShellState extends State<MainShell> {
   Future<void> _loadPending() async {
     if (context.read<AuthController>().user?.isAdmin != true) return;
     try {
-      final pending = await context.read<UsersRepository>().list(status: 'pending');
+      final pending = await context.read<UsersRepository>().list(
+        status: 'pending',
+      );
       if (mounted) setState(() => _pending = pending.length);
     } on ApiException {
       // The badge is a convenience; the Usuarios tab reports real errors.
@@ -48,7 +52,10 @@ class _MainShellState extends State<MainShell> {
   void _select(int branch) {
     final leavingUsers = widget.shell.currentIndex == MainTabs.users;
     // Tapping the current tab again goes back to its first screen.
-    widget.shell.goBranch(branch, initialLocation: branch == widget.shell.currentIndex);
+    widget.shell.goBranch(
+      branch,
+      initialLocation: branch == widget.shell.currentIndex,
+    );
     // Requests may have been approved or rejected in the Usuarios tab.
     if (leavingUsers || branch == MainTabs.users) _loadPending();
   }
@@ -56,16 +63,50 @@ class _MainShellState extends State<MainShell> {
   @override
   Widget build(BuildContext context) {
     final isAdmin = context.watch<AuthController>().user?.isAdmin ?? false;
-    final branches = [MainTabs.home, MainTabs.inventory, if (isAdmin) MainTabs.users];
+    final branches = [
+      MainTabs.home,
+      MainTabs.forecasts,
+      MainTabs.model,
+      MainTabs.inventory,
+      if (isAdmin) MainTabs.users,
+    ];
     final selected = branches.indexOf(widget.shell.currentIndex);
 
     final usersTooltip = _pending == 0
         ? 'Usuarios'
         : 'Usuarios: $_pending ${_pending == 1 ? 'solicitud pendiente' : 'solicitudes pendientes'}';
     final items = [
-      (icon: _icon(Icons.home_outlined), label: 'Inicio', tooltip: 'Inicio', badge: 0),
-      (icon: (Color c) => _CubeIcon(color: c), label: 'Inventario', tooltip: 'Inventario', badge: 0),
-      if (isAdmin) (icon: _icon(Icons.people_outline), label: 'Usuarios', tooltip: usersTooltip, badge: _pending),
+      (
+        icon: _icon(Icons.home_outlined),
+        label: 'Inicio',
+        tooltip: 'Inicio',
+        badge: 0,
+      ),
+      (
+        icon: _icon(Icons.show_chart),
+        label: 'Pronósticos',
+        tooltip: 'Pronósticos',
+        badge: 0,
+      ),
+      (
+        icon: _icon(Icons.model_training),
+        label: 'Modelo',
+        tooltip: 'Modelo',
+        badge: 0,
+      ),
+      (
+        icon: (Color c) => _CubeIcon(color: c),
+        label: 'Inventario',
+        tooltip: 'Inventario',
+        badge: 0,
+      ),
+      if (isAdmin)
+        (
+          icon: _icon(Icons.people_outline),
+          label: 'Usuarios',
+          tooltip: usersTooltip,
+          badge: _pending,
+        ),
     ];
 
     return Scaffold(
@@ -80,14 +121,22 @@ class _MainShellState extends State<MainShell> {
           decoration: BoxDecoration(
             color: AppColors.navy,
             borderRadius: BorderRadius.circular(30),
-            boxShadow: const [BoxShadow(color: Color(0x330F172A), blurRadius: 20, offset: Offset(0, 8))],
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x330F172A),
+                blurRadius: 20,
+                offset: Offset(0, 8),
+              ),
+            ],
           ),
           // Stretched: the lime pill fills the bar's height, not just the icon's.
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               for (var i = 0; i < items.length; i++)
+                // The current tab is wider: it spells its name.
                 Expanded(
+                  flex: i == (selected < 0 ? 0 : selected) ? 3 : 1,
                   child: _TabItem(
                     icon: items[i].icon,
                     label: items[i].label,
@@ -145,7 +194,11 @@ class _TabItem extends StatelessWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Badge(isLabelVisible: badge > 0, label: Text('$badge'), child: icon(color)),
+                Badge(
+                  isLabelVisible: badge > 0,
+                  label: Text('$badge'),
+                  child: icon(color),
+                ),
                 // Only the current tab spells its name; the others are icons.
                 if (selected) ...[
                   const SizedBox(width: 6),
@@ -155,7 +208,11 @@ class _TabItem extends StatelessWidget {
                       maxLines: 1,
                       overflow: TextOverflow.fade,
                       softWrap: false,
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: color),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: color,
+                      ),
                     ),
                   ),
                 ],
@@ -178,7 +235,8 @@ class _CubeIcon extends StatelessWidget {
   final Color color;
 
   @override
-  Widget build(BuildContext context) => CustomPaint(size: const Size.square(22), painter: _CubePainter(color));
+  Widget build(BuildContext context) =>
+      CustomPaint(size: const Size.square(22), painter: _CubePainter(color));
 }
 
 class _CubePainter extends CustomPainter {
@@ -189,7 +247,9 @@ class _CubePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final w = size.width, h = size.height;
-    final top = Offset(w / 2, h * 0.1), centre = Offset(w / 2, h * 0.46), bottom = Offset(w / 2, h * 0.9);
+    final top = Offset(w / 2, h * 0.1),
+        centre = Offset(w / 2, h * 0.46),
+        bottom = Offset(w / 2, h * 0.9);
     final left = w * 0.14, right = w * 0.86;
     final stroke = Paint()
       ..color = color

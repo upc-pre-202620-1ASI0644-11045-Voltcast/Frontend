@@ -18,7 +18,7 @@ Future<FakeInventoryBackend> _pump(
   double height = 800,
   // Wide enough to drag between neighbouring cards of a section's row.
   double width = 400,
-  ProductionLineScreen screen = const ProductionLineScreen(),
+  CellScreen screen = const CellScreen(),
 }) async {
   tester.view.physicalSize = Size(width, height);
   tester.view.devicePixelRatio = 1;
@@ -90,7 +90,7 @@ void main() {
     var signedOut = false;
     await _pump(
       tester,
-      screen: ProductionLineScreen(userName: 'Oscar', userRole: 'Supervisor', onLogout: () => signedOut = true),
+      screen: CellScreen(userName: 'Oscar', userRole: 'Supervisor', onLogout: () => signedOut = true),
     );
 
     expect(find.text('Hola, Oscar'), findsOneWidget);
@@ -166,7 +166,7 @@ void main() {
     expect(_inPanel('#2'), findsOneWidget);
     expect(_inPanel('En uso'), findsNWidgets(2)); // pill + state
     expect(_inPanel('CELL-00001'), findsOneWidget);
-    expect(find.textContaining('Actualizado a las'), findsOneWidget);
+    expect(find.textContaining('Actualizado a las'), findsNothing);
     expect(backend.requests.length, greaterThan(before)); // fetched again on entering
 
     await tester.tap(find.byKey(const ValueKey('focus-cathode')));
@@ -273,7 +273,7 @@ void main() {
     expect(backend.component(1)['cell_id'], 1);
   });
 
-  group('replaces the cells and components screens', () {
+  group('CellScreen: component view and swaps', () {
     testWidgets('"Nueva" creates a cell', (tester) async {
       final backend = await _pump(tester);
 

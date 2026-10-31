@@ -8,10 +8,17 @@ import '../storage/token_storage.dart';
 import 'api_exception.dart';
 import 'backend_messages.dart';
 
+typedef _FilePart = ({
+  String field,
+  String filename,
+  List<int> bytes,
+  Map<String, String> fields,
+});
+
 class ApiClient {
   ApiClient({required TokenStorage tokenStorage, http.Client? httpClient})
-      : _tokens = tokenStorage,
-        _http = httpClient ?? http.Client();
+    : _tokens = tokenStorage,
+      _http = httpClient ?? http.Client();
 
   final TokenStorage _tokens;
   final http.Client _http;
@@ -25,6 +32,20 @@ class ApiClient {
   Future<dynamic> post(String path, {Object? body, bool auth = false}) =>
       _send('POST', path, body: body, auth: auth);
 
+  /// `multipart/form-data` with a single file part and optional text [fields].
+  Future<dynamic> upload(
+    String path, {
+    required String field,
+    required String filename,
+    required List<int> bytes,
+    Map<String, String> fields = const {},
+  }) => _send(
+    'POST',
+    path,
+    auth: true,
+    file: (field: field, filename: filename, bytes: bytes, fields: fields),
+  );
+
   Future<dynamic> put(String path, {Object? body, bool auth = false}) =>
       _send('PUT', path, body: body, auth: auth);
 
@@ -36,11 +57,24 @@ class ApiClient {
     String path, {
     Object? body,
     bool auth = false,
+    _FilePart? file,
   }) async {
-    var response = await _request(method, path, body: body, auth: auth);
+    var response = await _request(
+      method,
+      path,
+      body: body,
+      auth: auth,
+      file: file,
+    );
 
     if (response.statusCode == 401 && auth && await _refreshAccessToken()) {
-      response = await _request(method, path, body: body, auth: auth);
+      response = await _request(
+        method,
+        path,
+        body: body,
+        auth: auth,
+        file: file,
+      );
     }
     return _decode(response);
   }
@@ -50,23 +84,37 @@ class ApiClient {
     String path, {
     Object? body,
     required bool auth,
+    _FilePart? file,
   }) async {
-    final request = http.Request(
-      method,
-      Uri.parse('${ApiConfig.baseUrl}${ApiConfig.apiPrefix}$path'),
-    );
-    request.headers['Accept'] = 'application/json';
-    if (body != null) {
-      request.headers['Content-Type'] = 'application/json';
-      request.body = jsonEncode(body);
+    final uri = Uri.parse('${ApiConfig.baseUrl}${ApiConfig.apiPrefix}$path');
+    final http.BaseRequest request;
+    if (file != null) {
+      request = http.MultipartRequest(method, uri)
+        ..fields.addAll(file.fields)
+        ..files.add(
+          http.MultipartFile.fromBytes(
+            file.field,
+            file.bytes,
+            filename: file.filename,
+          ),
+        );
+    } else {
+      request = http.Request(method, uri);
+      if (body != null) {
+        request.headers['Content-Type'] = 'application/json';
+        (request as http.Request).body = jsonEncode(body);
+      }
     }
+    request.headers['Accept'] = 'application/json';
     if (auth) {
       final token = await _tokens.accessToken;
       if (token != null) request.headers['Authorization'] = 'Bearer $token';
     }
 
     try {
-      final streamed = await _http.send(request).timeout(ApiConfig.requestTimeout);
+      final streamed = await _http
+          .send(request)
+          .timeout(ApiConfig.requestTimeout);
       return await http.Response.fromStream(streamed);
     } on TimeoutException {
       throw const ApiException(
@@ -97,7 +145,8 @@ class ApiClient {
         onSessionExpired?.call();
         return false;
       }
-      final data = jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+      final data =
+          jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
       await _tokens.saveTokens(access: data['access_token'] as String);
       return true;
     } on ApiException {
