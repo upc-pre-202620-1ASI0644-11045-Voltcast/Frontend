@@ -15,8 +15,11 @@ import '../helpers/fake_inventory_backend.dart';
 import '../helpers/memory_tokens.dart';
 
 InventoryRepository _repo(FakeInventoryBackend backend) => InventoryRepository(
-      ApiClient(tokenStorage: MemoryTokens(access: 'token'), httpClient: backend.client),
-    );
+  ApiClient(
+    tokenStorage: MemoryTokens(access: 'token'),
+    httpClient: backend.client,
+  ),
+);
 
 Future<(InventoryController, FakeInventoryBackend)> _loaded({
   MemoryPendingSwapStore? store,
@@ -34,8 +37,7 @@ Future<(InventoryController, FakeInventoryBackend)> _loaded({
   return (controller, backend);
 }
 
-Matcher _apiError(String message) =>
-    throwsA(isA<ApiException>().having((e) => e.message, 'message', message));
+Matcher _apiError(String message) => throwsA(isA<ApiException>().having((e) => e.message, 'message', message));
 
 void main() {
   group('models', () {
@@ -73,10 +75,11 @@ void main() {
       }
     });
 
-    test('serialCode', () {
-      expect(Validators.serialCode('CAT-001'), isNull);
-      expect(Validators.serialCode('  '), isNotNull);
-      expect(Validators.serialCode('x' * 51), isNotNull);
+    test('serialNumber: only the digits, the app adds the type letter', () {
+      expect(Validators.serialNumber('001'), isNull);
+      expect(Validators.serialNumber('  '), isNotNull);
+      expect(Validators.serialNumber('C-001'), isNotNull);
+      expect(Validators.serialNumber('1' * 21), isNotNull);
     });
   });
 
@@ -91,7 +94,10 @@ void main() {
       await repo.createComponent(type: ComponentType.cathode, serialCode: 'CAT-5');
       await repo.assignComponent(5, 3);
       await repo.swapComponents(1, 3);
-      await repo.disableCell(2, releaseComponents: true);
+      await repo.releaseCell(2);
+      await repo.hideCell(4);
+      await repo.reactivateComponent(6);
+      await repo.disableComponent(6);
 
       final sent = backend.requests;
       expect(jsonDecode(sent[0].body), {'name': 'b7'});
@@ -100,8 +106,14 @@ void main() {
       expect(jsonDecode(sent[3].body), {'type': 'CATHODE', 'serial_code': 'CAT-5'}); // no cell_id key
       expect(jsonDecode(sent[4].body), {'cell_id': 3});
       expect(jsonDecode(sent[5].body), {'component_a_id': 1, 'component_b_id': 3});
-      expect(sent[6].method, 'PATCH');
-      expect(sent[6].url.toString(), endsWith('/api/v1/cells/2/disable?release_components=true'));
+      for (final (i, path) in [
+        (6, '/api/v1/cells/2/release'),
+        (7, '/api/v1/cells/4/hide'),
+        (8, '/api/v1/components/6/reactivate'),
+        (9, '/api/v1/components/6/disable'),
+      ]) {
+        expect((sent[i].method, sent[i].url.path), ('PATCH', path));
+      }
       expect(sent.every((r) => r.headers['Authorization'] == 'Bearer token'), isTrue);
     });
   });
@@ -111,9 +123,10 @@ void main() {
       final (c, _) = await _loaded();
 
       expect(c.cells.map((e) => e.name), ['A1', 'A2', 'B3', 'C4']);
-      expect(c.activeCells.map((e) => e.name), ['A1', 'A2', 'B3']);
-      expect(c.cellsWithComponents, 2);
-      expect(c.inactiveCells, 1);
+      // Active = with a cathode and an anode; B3 and C4 have none.
+      expect(c.activeCells.map((e) => e.name), ['A1', 'A2']);
+      expect(c.activeCount, 2);
+      expect(c.inactiveCount, 2);
       expect(c.componentsInUse, 4);
       expect(c.componentsFree, 1); // CAT-099; the disabled ANO-777 is not "free"
       expect(c.components.length, 6);
@@ -150,34 +163,70 @@ void main() {
       expect(c.cellById(3)!.name, 'Z9');
     });
 
-    test('US011 E02: a cell with components is refused while they are assigned', () async {
-      final (c, backend) = await _loaded();
+    test('US011 E02: a cell with components cannot be removed while they are assigned', () async {
+      final (c, _) = await _loaded();
 
-      await expectLater(c.disableCell(c.cellById(1)!), _apiError(cellHasComponentsMessage));
+      await expectLater(c.hideCell(c.cellById(1)!), _apiError(cellHasComponentsMessage));
 
-      expect(c.cellById(1)!.isActive, isTrue);
+      expect(c.cellById(1), isNotNull);
       expect(c.componentsOf(1), hasLength(2)); // nothing was released
-      expect(backend.requests.last.url.queryParameters['release_components'], 'false');
     });
 
-    test('US011 E03: releasing the components frees them and disables the cell', () async {
-      final (c, backend) = await _loaded();
-      final a1 = c.cellById(1)!;
+    test('US011 E03: releasing the components frees them and leaves the cell inactive', () async {
+      final (c, _) = await _loaded();
 
-      await c.disableCell(a1, release: true);
+      await c.releaseCell(c.cellById(1)!);
 
       expect(c.cellById(1)!.isActive, isFalse);
+      expect(c.activeCells.map((e) => e.name), ['A2']);
       expect(c.componentsOf(1), isEmpty);
       expect(c.componentsFree, 3); // CAT-099 + the two released
       expect(c.isCellBusy(1), isFalse);
-      expect(backend.requests.any((r) => r.url.toString().contains('release_components=true')), isTrue);
     });
 
-    test('disabling an empty cell does not ask to release', () async {
-      final (c, backend) = await _loaded();
-      await c.disableCell(c.cellById(3)!);
-      expect(backend.requests.last.url.queryParameters['release_components'] ?? 'false', 'false');
+    test('an inactive cell becomes active again once it gets a cathode and an anode', () async {
+      final backend = FakeInventoryBackend()
+        ..components.add({
+          'id': 7,
+          'type': 'ANODE',
+          'serial_code': 'A-7',
+          'is_active': true,
+          'is_visible': true,
+          'cell_id': null,
+        });
+      final (c, _) = await _loaded(backend: backend);
+
+      await c.assignComponent(c.components.firstWhere((x) => x.id == 5), c.cellById(3)!); // CAT-099
       expect(c.cellById(3)!.isActive, isFalse);
+      await c.assignComponent(c.components.firstWhere((x) => x.id == 7), c.cellById(3)!);
+      expect(c.cellById(3)!.isActive, isTrue);
+    });
+
+    test('a removed cell leaves the list and comes back when created again', () async {
+      final (c, _) = await _loaded();
+
+      await c.hideCell(c.cellById(3)!);
+      expect(c.cells.map((e) => e.name), ['A1', 'A2', 'C4']);
+
+      await c.createCell('b3');
+      expect(c.cells.map((e) => e.name), ['A1', 'A2', 'B3', 'C4']);
+      expect(c.cellById(3), isNotNull); // the same cell, not a new one
+    });
+
+    test('a disabled component is reactivated, or removed and brought back by its code', () async {
+      final (c, _) = await _loaded();
+      Component ano777() => c.components.firstWhere((x) => x.serialCode == 'ANO-777');
+
+      await c.reactivateComponent(ano777());
+      expect(ano777().isFree, isTrue);
+
+      await c.disableComponent(ano777());
+      await c.hideComponent(ano777());
+      expect(c.components.any((x) => x.serialCode == 'ANO-777'), isFalse);
+
+      await c.createComponent(type: ComponentType.anode, serialCode: 'ANO-777');
+      expect(ano777().id, 6); // the same component
+      expect(ano777().isFree, isTrue);
     });
 
     test('generateBarcode needs a cathode and an anode', () async {
@@ -232,10 +281,11 @@ void main() {
       expect(c.cathodeOf(c.cellById(3)!)?.serialCode, 'CAT-099');
     });
 
-    test('cannot assign to a disabled cell', () async {
-      final (c, _) = await _loaded();
+    test('cannot assign to a removed cell', () async {
+      final (c, backend) = await _loaded();
+      backend.cell(4)['is_visible'] = false; // removed from another device
       final free = c.components.firstWhere((e) => e.serialCode == 'CAT-099');
-      await expectLater(c.assignComponent(free, c.cellById(4)!), _apiError('La celda está deshabilitada.'));
+      await expectLater(c.assignComponent(free, c.cellById(4)!), _apiError('La celda no existe.'));
     });
 
     test('disabling: free ok, in use refused', () async {
@@ -263,7 +313,10 @@ void main() {
       expect(c.cathodeOf(c.cellById(1)!)?.serialCode, 'CAT-014');
       expect(c.cathodeOf(c.cellById(2)!)?.serialCode, 'CAT-001');
 
-      await expectLater(c.swapComponents(cat1, ano1), _apiError('Solo se pueden intercambiar componentes del mismo tipo.'));
+      await expectLater(
+        c.swapComponents(cat1, ano1),
+        _apiError('Solo se pueden intercambiar componentes del mismo tipo.'),
+      );
     });
 
     test('load failure is exposed without throwing', () async {
@@ -294,9 +347,10 @@ void main() {
     test('cellsAccepting only lists cells with room for that type', () async {
       final (c, _) = await _loaded();
 
-      // A1 and A2 already hold a cathode and an anode; B3 is empty.
-      expect(c.cellsAccepting(ComponentType.cathode).map((e) => e.name), ['B3']);
-      expect(c.cellsAccepting(ComponentType.anode).map((e) => e.name), ['B3']);
+      // A1 and A2 already hold a cathode and an anode; B3 and C4 are empty (and
+      // inactive, which does not stop them from getting components).
+      expect(c.cellsAccepting(ComponentType.cathode).map((e) => e.name), ['B3', 'C4']);
+      expect(c.cellsAccepting(ComponentType.anode).map((e) => e.name), ['B3', 'C4']);
     });
 
     test('a component does not block its own cell', () async {
@@ -304,7 +358,7 @@ void main() {
       final cat1 = c.components.firstWhere((e) => e.serialCode == 'CAT-001');
 
       final names = c.cellsAccepting(ComponentType.cathode, exceptComponentId: cat1.id).map((e) => e.name);
-      expect(names, ['A1', 'B3']);
+      expect(names, ['A1', 'B3', 'C4']);
     });
 
     test('registering a second cathode in a cell is refused', () async {
@@ -312,11 +366,13 @@ void main() {
 
       await expectLater(
         c.createComponent(type: ComponentType.cathode, serialCode: 'CAT-200', cell: c.cellById(1)),
-        throwsA(isA<ApiException>().having(
-          (e) => e.message,
-          'message',
-          allOf(contains('A1'), contains('CAT-001'), contains('un solo cátodo')),
-        )),
+        throwsA(
+          isA<ApiException>().having(
+            (e) => e.message,
+            'message',
+            allOf(contains('A1'), contains('CAT-001'), contains('un solo cátodo')),
+          ),
+        ),
       );
       // It never reached the server.
       expect(backend.components.any((e) => e['serial_code'] == 'CAT-200'), isFalse);
@@ -367,8 +423,7 @@ void main() {
   });
 
   group('US014 E02: swapping without a connection', () {
-    Component find(InventoryController c, String serial) =>
-        c.components.firstWhere((e) => e.serialCode == serial);
+    Component find(InventoryController c, String serial) => c.components.firstWhere((e) => e.serialCode == serial);
 
     test('is applied on the device and queued', () async {
       final store = MemoryPendingSwapStore();

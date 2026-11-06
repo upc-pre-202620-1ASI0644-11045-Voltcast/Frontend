@@ -115,6 +115,36 @@ void main() {
     expect(await tokens.accessToken, isNull);
   });
 
+  group('translateBackendMessage: the file could not be read (US002, US003)', () {
+    test('columns that cannot be identified ask to check the structure', () {
+      final date = translateBackendMessage(
+        "Could not identify the date column 'Fecha' in sheet 'EL A'. Check the structure of the file",
+      );
+      final cols = translateBackendMessage(
+        "Could not identify the columns ['Volts'] in sheet 'EL A' (total voltage / current). Check the structure of the file",
+      );
+      expect(date, contains('No se pudo identificar la columna de fechas'));
+      expect(cols, contains('No se pudieron identificar las columnas'));
+      expect(date, contains('Verifica la estructura del archivo'));
+      expect(cols, contains('Verifica la estructura del archivo'));
+    });
+
+    test('a file without electrical cells says none were found', () {
+      expect(
+        translateBackendMessage(
+          "No electrical cells were found in sheet 'EL A': cell columns are named with their number (1, 2, 3...)",
+        ),
+        contains('No se encontraron celdas eléctricas'),
+      );
+      expect(
+        translateBackendMessage(
+          "No sheet identifies an electrical section (for example 'EL A' or 'Sección A'). Sheets found: ['Hoja1']",
+        ),
+        contains('No se encontraron celdas eléctricas'),
+      );
+    });
+  });
+
   group('translateBackendMessage', () {
     test('known and pattern messages', () {
       expect(translateBackendMessage('Your account request is pending approval'),

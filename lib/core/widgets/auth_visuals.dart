@@ -33,6 +33,7 @@ class IconTile extends StatelessWidget {
         height: size,
         decoration: BoxDecoration(
           color: AppColors.surface,
+          borderRadius: AppRadius.large,
           border: Border.all(color: const Color(0xFFF0F1F4)),
         ),
         child: Icon(icon, color: AppColors.blue, size: size * 0.42),
@@ -54,7 +55,7 @@ class SolidIconTile extends StatelessWidget {
       child: Container(
         width: size,
         height: size,
-        color: AppColors.blue,
+        decoration: BoxDecoration(color: AppColors.blue, borderRadius: AppRadius.large),
         child: Icon(icon, color: Colors.white, size: size * 0.45),
       ),
     );
@@ -74,6 +75,7 @@ class InfoBox extends StatelessWidget {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: AppColors.surface,
+        borderRadius: AppRadius.medium,
         border: Border.all(color: const Color(0xFFF0F1F4)),
       ),
       child: Row(
@@ -102,6 +104,7 @@ class ErrorBanner extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: const Color(0xFFFEF2F2),
+        borderRadius: AppRadius.medium,
         border: Border.all(color: const Color(0xFFFECACA)),
       ),
       child: Row(
@@ -144,7 +147,13 @@ class PasswordStrengthBar extends StatelessWidget {
         for (var i = 0; i < 4; i++) ...[
           if (i > 0) const SizedBox(width: 8),
           Expanded(
-            child: Container(height: 4, color: i < score ? active : AppColors.border),
+            child: Container(
+              height: 4,
+              decoration: BoxDecoration(
+                color: i < score ? active : AppColors.border,
+                borderRadius: AppRadius.small,
+              ),
+            ),
           ),
         ],
       ],

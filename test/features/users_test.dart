@@ -132,8 +132,8 @@ void main() {
     testWidgets('shows pending requests and accounts with counts', (tester) async {
       await _pumpScreen(tester);
 
-      expect(find.text('SOLICITUDES PENDIENTES · 2'), findsOneWidget);
-      expect(find.text('USUARIOS · 3'), findsOneWidget);
+      expect(find.text('2 pendientes'), findsOneWidget);
+      expect(find.text('3 usuarios'), findsOneWidget);
       expect(find.text('Mariana Torres'), findsOneWidget);
       expect(find.text('Sofía Vargas'), findsOneWidget);
       expect(find.text('Rechazado Uno'), findsNothing);
@@ -148,8 +148,8 @@ void main() {
       await tester.tap(find.text('Aprobar').first);
       await tester.pumpAndSettle();
 
-      expect(find.text('SOLICITUDES PENDIENTES · 1'), findsOneWidget);
-      expect(find.text('USUARIOS · 4'), findsOneWidget);
+      expect(find.text('1 pendiente'), findsOneWidget);
+      expect(find.text('4 usuarios'), findsOneWidget);
       expect(find.textContaining('ya puede iniciar sesión'), findsOneWidget);
       expect(backend.users.firstWhere((u) => u['id'] == 4)['status'], 'active');
     });
@@ -170,7 +170,7 @@ void main() {
       await tester.tap(find.descendant(of: find.byType(AlertDialog), matching: find.text('Rechazar')));
       await tester.pumpAndSettle();
 
-      expect(find.text('SOLICITUDES PENDIENTES · 1'), findsOneWidget);
+      expect(find.text('1 pendiente'), findsOneWidget);
       expect(backend.users.firstWhere((u) => u['id'] == 4)['status'], 'rejected');
     });
 

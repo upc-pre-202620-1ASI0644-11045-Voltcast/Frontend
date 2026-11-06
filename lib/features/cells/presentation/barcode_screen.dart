@@ -2,7 +2,6 @@ import 'package:barcode_widget/barcode_widget.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
-
 import '../../../core/dialogs.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/app_buttons.dart';
@@ -12,7 +11,7 @@ import '../../../core/widgets/auth_visuals.dart';
 import '../../../core/widgets/screen_header.dart';
 import '../data/cell.dart';
 import 'barcode_export.dart';
-import 'cells_screen.dart' show LoadErrorView;
+import 'cell_actions.dart' show LoadErrorView;
 import 'inventory_controller.dart';
 
 /// Signature of the download step; injectable so tests do not open a share sheet.
@@ -87,7 +86,7 @@ class _BarcodeScreenState extends State<BarcodeScreen> {
             ScreenHeader(
               title: 'Código de barras',
               subtitle: 'Identificación de celdas',
-              onBack: () => context.canPop() ? context.pop() : context.go('/cells'),
+              onBack: () => context.canPop() ? context.pop() : context.go('/line'),
             ),
             Expanded(child: _body(inventory)),
           ],
@@ -104,18 +103,19 @@ class _BarcodeScreenState extends State<BarcodeScreen> {
       return LoadErrorView(message: inventory.loadError ?? 'No se pudo cargar.', onRetry: inventory.load);
     }
 
-    final cells = inventory.activeCells;
+    // Every cell, also the inactive ones: their screen says what they are missing.
+    final cells = inventory.cells;
     if (cells.isEmpty) {
       return const Padding(
         padding: EdgeInsets.all(20),
         child: Align(
           alignment: Alignment.topCenter,
-          child: InfoBox(text: 'No hay celdas activas. Crea una celda para generar su código.'),
+          child: InfoBox(text: 'No hay celdas. Crea una celda para generar su código.'),
         ),
       );
     }
 
-    // Falls back to the first cell when nothing (or a disabled cell) is selected.
+    // Falls back to the first cell when nothing (or a removed cell) is selected.
     final cell = cells.firstWhere((c) => c.id == _selectedId, orElse: () => cells.first);
     final cathode = inventory.cathodeOf(cell)?.serialCode;
     final anode = inventory.anodeOf(cell)?.serialCode;
@@ -139,8 +139,10 @@ class _BarcodeScreenState extends State<BarcodeScreen> {
           ),
           const SizedBox(height: 16),
           Container(
+            clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
               color: Colors.white,
+              borderRadius: AppRadius.large,
               border: Border.all(color: const Color(0xFFF0F1F4)),
             ),
             child: Column(
@@ -199,11 +201,13 @@ class _BarcodeScreenState extends State<BarcodeScreen> {
           const SizedBox(height: 16),
           if (cell.hasBarcode)
             PrimaryButton(
+              color: AppColors.violet,
               label: 'Descargar PNG',
               onPressed: busy ? null : () => _download(cell),
             )
           else ...[
             PrimaryButton(
+              color: AppColors.teal,
               label: 'Generar código',
               loading: busy,
               onPressed: () => _generate(inventory, cell),

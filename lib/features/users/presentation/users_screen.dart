@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/dialogs.dart';
@@ -7,13 +6,16 @@ import '../../../core/submit_state.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/validators.dart';
 import '../../../core/widgets/app_buttons.dart';
-import '../../../core/widgets/app_header.dart';
 import '../../../core/widgets/app_text_field.dart';
+import '../../../core/widgets/app_widgets.dart';
 import '../../../core/widgets/auth_visuals.dart';
+import '../../../core/widgets/screen_header.dart';
 import '../../auth/data/auth_user.dart';
+import '../../auth/presentation/auth_controller.dart';
 import '../data/users_repository.dart';
 import 'users_controller.dart';
 import 'users_widgets.dart';
+import '../../home/settings_menu.dart';
 
 class UsersScreen extends StatelessWidget {
   const UsersScreen({super.key});
@@ -67,8 +69,6 @@ class _UsersView extends StatelessWidget {
     return showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(),
       builder: (_) => _EditUserSheet(user: user, controller: controller),
     );
   }
@@ -76,26 +76,44 @@ class _UsersView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final users = context.watch<UsersController>();
-
-    return Scaffold(
-      backgroundColor: AppColors.surface,
-      body: SafeArea(
-        child: Column(
-          children: [
-            AppHeader(onBack: () => context.canPop() ? context.pop() : context.go('/home')),
-            Expanded(child: _body(context, users)),
-          ],
-        ),
-      ),
+    // Absent in screen tests that mount this tab alone.
+    final auth = Provider.of<AuthController?>(context, listen: false);
+    // A tab of the bottom bar: no way back to offer.
+    final header = BrandHeader(
+      eyebrow: 'Gestión de accesos',
+      title: 'Usuarios',
+      onLogout: auth?.logout,
+      onSettings: settingsAction(context),
+      bottom: users.hasLoaded
+          ? StatRow(
+              tiles: [
+                StatTile(label: 'Usuarios', value: users.accounts.length),
+                StatTile(
+                  label: 'Activos',
+                  value: users.accounts.where((u) => u.isActive).length,
+                  color: AppColors.success,
+                ),
+                StatTile(label: 'Pendientes', value: users.pending.length, color: AppColors.amber),
+              ],
+            )
+          : null,
     );
+
+    return Scaffold(backgroundColor: AppColors.surface, body: _body(context, users, header));
   }
 
-  Widget _body(BuildContext context, UsersController users) {
+  Widget _body(BuildContext context, UsersController users, Widget header) {
     if (!users.hasLoaded) {
-      if (users.loading) {
-        return const Center(child: CircularProgressIndicator(color: AppColors.blue));
-      }
-      return _LoadError(message: users.loadError ?? 'No se pudo cargar.', onRetry: users.load);
+      return Column(
+        children: [
+          header,
+          Expanded(
+            child: users.loading
+                ? const Center(child: CircularProgressIndicator(color: AppColors.blue))
+                : _LoadError(message: users.loadError ?? 'No se pudo cargar.', onRetry: users.load),
+          ),
+        ],
+      );
     }
 
     final pending = users.pending;
@@ -106,77 +124,100 @@ class _UsersView extends StatelessWidget {
       onRefresh: users.load,
       child: ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
+        padding: const EdgeInsets.only(bottom: 32),
         children: [
-          const Text(
-            'Gestión de usuarios',
-            style: TextStyle(fontSize: 28, fontWeight: FontWeight.w700, letterSpacing: -0.4, color: AppColors.ink),
-          ),
-          if (users.loadError != null) ...[
-            const SizedBox(height: 16),
-            ErrorBanner(users.loadError!),
-          ],
-          const SizedBox(height: 24),
-          SectionLabel('Solicitudes pendientes · ${pending.length}'),
-          const SizedBox(height: 12),
-          if (pending.isEmpty)
-            const InfoBox(text: 'No hay solicitudes pendientes.')
-          else
-            for (final user in pending) ...[
-              PendingRequestCard(
-                user: user,
-                busy: users.isBusy(user.id),
-                onApprove: () => runAction(
-                  context,
-                  () => context.read<UsersController>().approve(user),
-                  'Solicitud aprobada. ${user.fullName} ya puede iniciar sesión.',
-                ),
-                onReject: () => _reject(context, user),
-              ),
-              const SizedBox(height: 12),
-            ],
-          const SizedBox(height: 16),
-          SectionLabel('Usuarios · ${accounts.length}'),
-          const SizedBox(height: 12),
-          if (accounts.isEmpty)
-            const InfoBox(text: 'Aún no hay usuarios registrados.')
-          else
-            _AccountGrid(
+          header,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                for (final user in accounts)
-                  AccountCard(
-                    user: user,
-                    busy: users.isBusy(user.id),
-                    onEdit: () => _edit(context, user),
-                    onToggle: () => _toggle(context, user),
-                  ),
+                if (users.loadError != null) ...[ErrorBanner(users.loadError!), const SizedBox(height: 16)],
+                SectionTitle(
+                  'Solicitudes',
+                  trailing: switch (pending.length) {
+                    0 => null,
+                    1 => '1 pendiente',
+                    final n => '$n pendientes',
+                  },
+                ),
+                const SizedBox(height: 12),
+                if (pending.isEmpty)
+                  const _AllClear()
+                else
+                  for (final user in pending) ...[
+                    PendingRequestCard(
+                      user: user,
+                      busy: users.isBusy(user.id),
+                      onApprove: () => runAction(
+                        context,
+                        () => context.read<UsersController>().approve(user),
+                        'Solicitud aprobada. ${user.fullName} ya puede iniciar sesión.',
+                      ),
+                      onReject: () => _reject(context, user),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+                const SizedBox(height: 24),
+                SectionTitle('Equipo', trailing: accounts.length == 1 ? '1 usuario' : '${accounts.length} usuarios'),
+                const SizedBox(height: 12),
+                if (accounts.isEmpty)
+                  const InfoBox(text: 'Aún no hay usuarios registrados.')
+                else
+                  for (final user in accounts) ...[
+                    AccountCard(
+                      user: user,
+                      busy: users.isBusy(user.id),
+                      onEdit: () => _edit(context, user),
+                      onToggle: () => _toggle(context, user),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
               ],
             ),
+          ),
         ],
       ),
     );
   }
 }
 
-/// Two columns when there is room, one on very narrow screens.
-class _AccountGrid extends StatelessWidget {
-  const _AccountGrid({required this.children});
-
-  final List<Widget> children;
+/// No pending requests: a calm dashed box instead of an empty list.
+class _AllClear extends StatelessWidget {
+  const _AllClear();
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const gap = 12.0;
-        final columns = constraints.maxWidth >= 320 ? 2 : 1;
-        final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
-        return Wrap(
-          spacing: gap,
-          runSpacing: gap,
-          children: [for (final child in children) SizedBox(width: width, child: child)],
-        );
-      },
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.6),
+        borderRadius: AppRadius.large,
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: const BoxDecoration(color: Color(0xFFE8F8EE), shape: BoxShape.circle),
+            child: const Icon(Icons.check, size: 20, color: AppColors.success),
+          ),
+          const SizedBox(width: 14),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Todo al día',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: AppColors.ink),
+                ),
+                Text('No hay solicitudes pendientes.', style: TextStyle(fontSize: 13, color: AppColors.muted)),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -229,16 +270,13 @@ class _EditUserSheetState extends State<_EditUserSheet> with SubmitState {
   }
 
   bool get _changed =>
-      _name.text.trim() != widget.user.fullName ||
-      _email.text.trim().toLowerCase() != widget.user.email;
+      _name.text.trim() != widget.user.fullName || _email.text.trim().toLowerCase() != widget.user.email;
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
-    final ok = await submit(
-      () => widget.controller.edit(widget.user, fullName: _name.text, email: _email.text),
-    );
+    final ok = await submit(() => widget.controller.edit(widget.user, fullName: _name.text, email: _email.text));
     if (ok) {
       navigator.pop();
       messenger.showSnackBar(const SnackBar(content: Text('Datos actualizados.')));
@@ -290,23 +328,14 @@ class _EditUserSheetState extends State<_EditUserSheet> with SubmitState {
                   ),
                 ),
                 const SizedBox(height: 20),
-                if (error != null) ...[
-                  ErrorBanner(error!),
-                  const SizedBox(height: 16),
-                ],
+                if (error != null) ...[ErrorBanner(error!), const SizedBox(height: 16)],
                 ListenableBuilder(
                   listenable: Listenable.merge([_name, _email]),
-                  builder: (context, _) => PrimaryButton(
-                    label: 'Guardar cambios',
-                    loading: loading,
-                    onPressed: _changed ? _save : null,
-                  ),
+                  builder: (context, _) =>
+                      PrimaryButton(label: 'Guardar cambios', loading: loading, onPressed: _changed ? _save : null),
                 ),
                 const SizedBox(height: 12),
-                SecondaryButton(
-                  label: 'Cancelar',
-                  onPressed: loading ? null : () => Navigator.pop(context),
-                ),
+                SecondaryButton(label: 'Cancelar', onPressed: loading ? null : () => Navigator.pop(context)),
               ],
             ),
           ),

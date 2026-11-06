@@ -45,7 +45,10 @@ class FakeUsersBackend {
     if (fail != null) return _json(fail.status, {'detail': fail.detail});
 
     final path = request.url.path.replaceFirst('/api/v1', '');
-    if (request.method == 'GET' && path == '/users') return _json(200, users);
+    if (request.method == 'GET' && path == '/users') {
+      final status = request.url.queryParameters['status'];
+      return _json(200, status == null ? users : users.where((u) => u['status'] == status).toList());
+    }
 
     final match = RegExp(r'^/users/(\d+)(?:/(approval|status))?$').firstMatch(path);
     if (match == null) return _json(404, {'detail': 'Not found'});

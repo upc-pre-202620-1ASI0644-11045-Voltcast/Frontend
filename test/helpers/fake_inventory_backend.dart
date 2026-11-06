@@ -4,7 +4,9 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 /// Stateful stand-in for `/cells` and `/components` that enforces the same
-/// business rules (and error messages) as the real backend.
+/// business rules (and error messages) as the real backend: a cell is active
+/// only while it has a cathode and an anode, and removing a cell or a disabled
+/// component only hides it.
 class FakeInventoryBackend {
   FakeInventoryBackend() {
     client = MockClient(_handle);
@@ -29,11 +31,12 @@ class FakeInventoryBackend {
   /// only the refresh after a mutation fail).
   int? failFromRequest;
 
+  /// A1 and A2 have a cathode and an anode (active); B3 and C4 have none (inactive).
   final cells = <Map<String, dynamic>>[
-    _cell(1, 'A1', 'CELL-00001', true),
-    _cell(2, 'A2', null, true),
-    _cell(3, 'B3', null, true),
-    _cell(4, 'C4', null, false),
+    _cell(1, 'A1', 'CELL-00001'),
+    _cell(2, 'A2', null),
+    _cell(3, 'B3', null),
+    _cell(4, 'C4', null),
   ];
 
   final components = <Map<String, dynamic>>[
@@ -45,25 +48,43 @@ class FakeInventoryBackend {
     _component(6, 'ANODE', 'ANO-777', null, active: false),
   ];
 
-  static Map<String, dynamic> _cell(int id, String name, String? barcode, bool active) =>
-      {'id': id, 'name': name, 'barcode_value': barcode, 'is_active': active};
+  static Map<String, dynamic> _cell(int id, String name, String? barcode) => {
+    'id': id,
+    'name': name,
+    'barcode_value': barcode,
+    'is_visible': true,
+  };
 
-  static Map<String, dynamic> _component(int id, String type, String serial, int? cellId, {bool active = true}) =>
-      {'id': id, 'type': type, 'serial_code': serial, 'is_active': active, 'cell_id': cellId};
+  static Map<String, dynamic> _component(int id, String type, String serial, int? cellId, {bool active = true}) => {
+    'id': id,
+    'type': type,
+    'serial_code': serial,
+    'is_active': active,
+    'is_visible': true,
+    'cell_id': cellId,
+  };
 
+  /// The stored record (`is_visible` included); [cellJson] is what the API answers.
   Map<String, dynamic> cell(int id) => cells.firstWhere((c) => c['id'] == id);
   Map<String, dynamic> component(int id) => components.firstWhere((c) => c['id'] == id);
+
+  /// As the API answers it: status derived from the components, no visibility flag.
+  Map<String, dynamic> cellJson(int id) {
+    final types = _assigned(id).map((c) => c['type']).toSet();
+    return {...cell(id), 'is_active': types.contains('CATHODE') && types.contains('ANODE')}..remove('is_visible');
+  }
+
+  Map<String, dynamic> _componentJson(Map<String, dynamic> c) => {...c}..remove('is_visible');
 
   List<Map<String, dynamic>> _assigned(int cellId) =>
       components.where((c) => c['is_active'] == true && c['cell_id'] == cellId).toList();
 
-  http.Response _json(int status, Object body) => http.Response(
-        jsonEncode(body),
-        status,
-        headers: {'content-type': 'application/json; charset=utf-8'},
-      );
+  http.Response _json(int status, Object body) =>
+      http.Response(jsonEncode(body), status, headers: {'content-type': 'application/json; charset=utf-8'});
 
   http.Response _bad(String message) => _json(400, {'detail': message});
+
+  bool _visibleCell(int? id) => cells.any((c) => c['id'] == id && c['is_visible'] == true);
 
   Future<http.Response> _handle(http.Request request) async {
     requests.add(request);
@@ -77,46 +98,50 @@ class FakeInventoryBackend {
     final path = request.url.path.replaceFirst('/api/v1', '');
     final body = request.body.isEmpty ? <String, dynamic>{} : jsonDecode(request.body) as Map<String, dynamic>;
 
-    if (request.method == 'GET' && path == '/cells') return _json(200, cells);
-    if (request.method == 'GET' && path == '/components') return _json(200, components);
+    if (request.method == 'GET' && path == '/cells') {
+      return _json(200, [for (final c in cells.where((c) => c['is_visible'] == true)) cellJson(c['id'] as int)]);
+    }
+    if (request.method == 'GET' && path == '/components') {
+      return _json(200, [for (final c in components.where((c) => c['is_visible'] == true)) _componentJson(c)]);
+    }
 
     if (request.method == 'POST' && path == '/cells') {
       final name = (body['name'] as String).trim().toUpperCase();
       if (!RegExp(r'^[A-Z][1-9][0-9]*$').hasMatch(name)) {
         return _bad('Cell name must be a letter followed by a number, e.g. A1, B12');
       }
-      if (cells.any((c) => c['name'] == name)) return _bad("Cell '$name' already exists");
-      final created = _cell(cells.length + 1, name, null, true);
+      final existing = cells.where((c) => c['name'] == name).firstOrNull;
+      if (existing != null) {
+        if (existing['is_visible'] == true) return _bad("Cell '$name' already exists");
+        existing['is_visible'] = true; // a hidden cell comes back
+        return _json(201, cellJson(existing['id'] as int));
+      }
+      final created = _cell(cells.length + 1, name, null);
       cells.add(created);
-      return _json(201, created);
+      return _json(201, cellJson(created['id'] as int));
     }
 
-    final cellMatch = RegExp(r'^/cells/(\d+)(?:/(disable|barcode))?$').firstMatch(path);
+    final cellMatch = RegExp(r'^/cells/(\d+)(?:/(release|hide|barcode))?$').firstMatch(path);
     if (cellMatch != null) {
       final id = int.parse(cellMatch.group(1)!);
       final target = cells.where((c) => c['id'] == id).firstOrNull;
       if (target == null) return _bad('Cell not found: $id');
 
       switch (cellMatch.group(2)) {
-        case 'disable':
-          final assigned = _assigned(id);
-          final release = request.url.queryParameters['release_components'] == 'true';
-          if (assigned.isNotEmpty && !release) {
-            return _bad(
-              'Cell has assigned cathodes/anodes; release them first or disable with release_components=true',
-            );
-          }
-          for (final c in assigned) {
+        case 'release':
+          for (final c in _assigned(id)) {
             c['cell_id'] = null;
           }
-          if (target['is_active'] != true) return _bad('Cell is already disabled');
-          target['is_active'] = false;
+        case 'hide':
+          if (_assigned(id).isNotEmpty) {
+            return _bad('Cell has assigned cathodes/anodes; release them before removing it');
+          }
+          target['is_visible'] = false;
         case 'barcode':
           final types = _assigned(id).map((c) => c['type']).toSet();
           if (!(types.contains('CATHODE') && types.contains('ANODE'))) {
             return _bad('Cell must have an assigned cathode and anode to generate its barcode');
           }
-          if (target['is_active'] != true) return _bad('Cannot generate a barcode for a disabled cell');
           target['barcode_value'] ??= 'CELL-${id.toString().padLeft(5, '0')}';
         default: // PUT rename
           final name = (body['name'] as String).trim().toUpperCase();
@@ -128,7 +153,7 @@ class FakeInventoryBackend {
           }
           target['name'] = name;
       }
-      return _json(200, target);
+      return _json(200, cellJson(id));
     }
 
     if (request.method == 'POST' && path == '/components/swap') {
@@ -146,20 +171,32 @@ class FakeInventoryBackend {
       final tmp = a['cell_id'];
       a['cell_id'] = b['cell_id'];
       b['cell_id'] = tmp;
-      return _json(200, [a, b]);
+      return _json(200, [_componentJson(a), _componentJson(b)]);
     }
 
     if (request.method == 'POST' && path == '/components') {
       final serial = (body['serial_code'] as String).trim();
-      if (components.any((c) => c['serial_code'] == serial)) {
+      final cellId = body['cell_id'] as int?;
+      final existing = components.where((c) => c['serial_code'] == serial).firstOrNull;
+      if (existing != null && existing['is_active'] == true && existing['is_visible'] == true) {
         return _bad("Component with serial code '$serial' already exists");
       }
-      final created = _component(components.length + 1, body['type'] as String, serial, body['cell_id'] as int?);
+      if (cellId != null && !_visibleCell(cellId)) return _bad('Cell not found: $cellId');
+      if (existing != null) {
+        // Disabled or hidden: the same component comes back.
+        existing
+          ..['type'] = body['type']
+          ..['is_active'] = true
+          ..['is_visible'] = true
+          ..['cell_id'] = cellId;
+        return _json(201, _componentJson(existing));
+      }
+      final created = _component(components.length + 1, body['type'] as String, serial, cellId);
       components.add(created);
-      return _json(201, created);
+      return _json(201, _componentJson(created));
     }
 
-    final compMatch = RegExp(r'^/components/(\d+)(?:/(disable|assign))?$').firstMatch(path);
+    final compMatch = RegExp(r'^/components/(\d+)(?:/(disable|reactivate|hide|assign))?$').firstMatch(path);
     if (compMatch != null) {
       final id = int.parse(compMatch.group(1)!);
       final target = components.where((c) => c['id'] == id).firstOrNull;
@@ -170,22 +207,29 @@ class FakeInventoryBackend {
           if (target['is_active'] != true) return _bad('Component is already disabled');
           if (target['cell_id'] != null) return _bad('Component is in use: it is assigned to a cell');
           target['is_active'] = false;
+        case 'reactivate':
+          if (target['is_active'] == true) return _bad('Component is already active');
+          target
+            ..['is_active'] = true
+            ..['is_visible'] = true
+            ..['cell_id'] = null;
+        case 'hide':
+          if (target['is_active'] == true) return _bad('Only a disabled component can be removed from view');
+          target['is_visible'] = false;
         case 'assign':
-          final dest = cell(body['cell_id'] as int);
-          if (dest['is_active'] != true) return _bad('Cell is disabled: ${dest['id']}');
+          final destId = body['cell_id'] as int;
+          if (!_visibleCell(destId)) return _bad('Cell not found: $destId');
           if (target['is_active'] != true) return _bad('Cannot assign a disabled component');
-          target['cell_id'] = dest['id'];
+          target['cell_id'] = destId;
         default: // PUT
           final serial = body['serial_code'] as String?;
-          if (serial != null &&
-              serial != target['serial_code'] &&
-              components.any((c) => c['serial_code'] == serial)) {
+          if (serial != null && serial != target['serial_code'] && components.any((c) => c['serial_code'] == serial)) {
             return _bad("Component with serial code '$serial' already exists");
           }
           if (serial != null) target['serial_code'] = serial;
           if (body['type'] != null) target['type'] = body['type'];
       }
-      return _json(200, target);
+      return _json(200, _componentJson(target));
     }
 
     return _json(404, {'detail': 'Not found'});

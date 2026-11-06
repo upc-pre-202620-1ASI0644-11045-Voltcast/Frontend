@@ -26,18 +26,20 @@ class Cell {
   int get hashCode => id.hashCode;
 
   factory Cell.fromJson(Map<String, dynamic> json) => Cell(
-        id: json['id'] as int,
-        name: json['name'] as String,
-        isActive: json['is_active'] as bool,
-        barcodeValue: json['barcode_value'] as String?,
-      );
+    id: json['id'] as int,
+    name: json['name'] as String,
+    isActive: json['is_active'] as bool,
+    barcodeValue: json['barcode_value'] as String?,
+  );
 }
 
 /// A1 < A2 < A10 < B1 (the backend names cells letter + number).
-int compareCells(Cell a, Cell b) {
-  final letters = a.name[0].compareTo(b.name[0]);
+int compareCells(Cell a, Cell b) => compareCellNames(a.name, b.name);
+
+int compareCellNames(String a, String b) {
+  final letters = a[0].compareTo(b[0]);
   if (letters != 0) return letters;
-  final numA = int.tryParse(a.name.substring(1)) ?? 0;
-  final numB = int.tryParse(b.name.substring(1)) ?? 0;
+  final numA = int.tryParse(a.substring(1)) ?? 0;
+  final numB = int.tryParse(b.substring(1)) ?? 0;
   return numA.compareTo(numB);
 }
