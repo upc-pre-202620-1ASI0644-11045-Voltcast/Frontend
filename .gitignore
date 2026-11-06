@@ -51,3 +51,6 @@ app.*.map.json
 
 # Environment configuration files
 .env
+
+# Firebase configuration files
+**/google-services.json
