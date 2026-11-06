@@ -29,6 +29,11 @@ class DatasetSummary {
     required this.newCells,
     this.dateFrom,
     this.dateTo,
+    this.rowsRead,
+    this.rowsSorted,
+    this.duplicatesRemoved,
+    this.discardedRows,
+    this.discardedColumns,
   });
 
   /// Cells per section: {A: 150, B: 150}.
@@ -38,6 +43,17 @@ class DatasetSummary {
   final int newCells;
   final DateTime? dateFrom;
   final DateTime? dateTo;
+
+  /// What the cleaning did to the file that was uploaded (not to a merged set).
+  /// Null in files processed before the backend counted them: never shown as 0.
+  final int? rowsRead,
+      rowsSorted,
+      duplicatesRemoved,
+      discardedRows,
+      discardedColumns;
+
+  /// The cleaning counts exist (rows_read = rows_sorted + duplicates_removed + discarded_rows).
+  bool get hasCleaning => rowsRead != null;
 
   factory DatasetSummary.fromJson(Map<String, dynamic> json) => DatasetSummary(
     sections: {
@@ -53,6 +69,11 @@ class DatasetSummary {
     dateTo: json['date_to'] is String
         ? parseApiDate(json['date_to'] as String)
         : null,
+    rowsRead: (json['rows_read'] as num?)?.toInt(),
+    rowsSorted: (json['rows_sorted'] as num?)?.toInt(),
+    duplicatesRemoved: (json['duplicates_removed'] as num?)?.toInt(),
+    discardedRows: (json['discarded_rows'] as num?)?.toInt(),
+    discardedColumns: (json['discarded_columns'] as num?)?.toInt(),
   );
 }
 

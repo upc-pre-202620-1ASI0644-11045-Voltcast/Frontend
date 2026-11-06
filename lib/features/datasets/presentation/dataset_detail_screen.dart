@@ -219,6 +219,10 @@ class _Summary extends StatelessWidget {
               ],
             ),
           ),
+        if (s != null && s.hasCleaning) ...[
+          const SizedBox(height: 16),
+          _CleaningSummary(summary: s, merged: dataset.baseDatasetId != null),
+        ],
         const SizedBox(height: 16),
         const Text(
           'El entrenamiento arranca solo cuando el archivo queda listo. '
@@ -231,6 +235,55 @@ class _Summary extends StatelessWidget {
           onPressed: starting ? null : onTrain,
         ),
       ],
+    );
+  }
+}
+
+/// What the cleaning did with the records of the uploaded file. Zeros are shown
+/// on purpose: they confirm the cleaning ran.
+class _CleaningSummary extends StatelessWidget {
+  const _CleaningSummary({required this.summary, required this.merged});
+
+  final DatasetSummary summary;
+
+  /// The file complements another: the counts are only of the uploaded one.
+  final bool merged;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = summary;
+    final rows = <(String, int?)>[
+      ('Registros leídos', s.rowsRead),
+      ('Registros ordenados', s.rowsSorted),
+      ('Duplicados eliminados', s.duplicatesRemoved),
+      ('Datos descartados (filas sin fecha)', s.discardedRows),
+      ('Columnas descartadas', s.discardedColumns),
+    ].where((r) => r.$2 != null).toList();
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Resumen de limpieza',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
+              color: AppColors.ink,
+            ),
+          ),
+          if (merged)
+            const Padding(
+              padding: EdgeInsets.only(top: 4),
+              child: Text(
+                'Los conteos son solo del archivo que subiste, no del conjunto unido.',
+                style: TextStyle(fontSize: 13, height: 1.4, color: AppColors.muted),
+              ),
+            ),
+          const SizedBox(height: 4),
+          for (var i = 0; i < rows.length; i++)
+            _Row(rows[i].$1, '${rows[i].$2}', last: i == rows.length - 1),
+        ],
+      ),
     );
   }
 }
