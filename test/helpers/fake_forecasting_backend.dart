@@ -86,12 +86,22 @@ class FakeForecastingBackend {
     headers: {'content-type': 'application/json; charset=utf-8'},
   );
 
+  /// Files processed before the cleaning counts existed carry none.
+  bool oldSummary = false;
+
   Map<String, dynamic> _summary() => {
     'sections': {'A': 150, 'B': 150},
     'n_cells': 300,
     'date_from': '2024-01-01',
     'date_to': '2026-09-30',
     'days': 1004,
+    if (!oldSummary) ...{
+      'rows_read': 1100,
+      'rows_sorted': 1004,
+      'duplicates_removed': 0,
+      'discarded_rows': 96,
+      'discarded_columns': 3,
+    },
     'new_cells': 2,
   };
 

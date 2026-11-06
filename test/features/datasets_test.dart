@@ -287,6 +287,56 @@ void main() {
     });
   });
 
+  group('DatasetSummary', () {
+    const base = {
+      'sections': {'A': 3, 'B': 2},
+      'n_cells': 5,
+      'date_from': '2026-01-01',
+      'date_to': '2026-01-12',
+      'days': 12,
+      'new_cells': 5,
+    };
+
+    test('reads the cleaning counts when the backend sends them', () {
+      final s = DatasetSummary.fromJson({
+        ...base,
+        'rows_read': 27,
+        'rows_sorted': 24,
+        'duplicates_removed': 2,
+        'discarded_rows': 1,
+        'discarded_columns': 2,
+      });
+
+      expect(s.hasCleaning, isTrue);
+      expect(
+        [s.rowsRead, s.rowsSorted, s.duplicatesRemoved, s.discardedRows, s.discardedColumns],
+        [27, 24, 2, 1, 2],
+      );
+      expect(s.rowsRead, s.rowsSorted! + s.duplicatesRemoved! + s.discardedRows!);
+    });
+
+    test('a file processed before the counts existed has none, not zeros', () {
+      final s = DatasetSummary.fromJson(base);
+
+      expect(s.hasCleaning, isFalse);
+      expect(s.rowsRead, isNull);
+      expect(s.duplicatesRemoved, isNull);
+      expect(s.cellCount, 5); // the current fields are untouched
+    });
+
+    test('a dataset without summary has none', () {
+      final d = Dataset.fromJson({
+        'id': 1,
+        'filename': 'a.xlsx',
+        'upload_status': 'ready',
+        'created_at': '2026-10-28T14:32:00',
+        'summary': null,
+      });
+
+      expect(d.summary, isNull);
+    });
+  });
+
   group('DatasetDetailScreen', () {
     testWidgets('a ready file shows its summary and trains the model', (
       tester,
@@ -323,6 +373,40 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+
+    testWidgets('a ready file shows what the cleaning did, zeros included', (
+      tester,
+    ) async {
+      await _pump(tester, const DatasetDetailScreen(id: 2));
+
+      expect(find.text('Resumen de limpieza'), findsOneWidget);
+      expect(find.text('Registros leídos'), findsOneWidget);
+      expect(find.text('Registros ordenados'), findsOneWidget);
+      expect(find.text('Duplicados eliminados'), findsOneWidget);
+      expect(find.text('0'), findsOneWidget); // no duplicates, still shown
+      expect(find.text('Columnas descartadas'), findsOneWidget);
+      expect(find.textContaining('no del conjunto unido'), findsNothing);
+    });
+
+    testWidgets('a file from before the counts hides the section', (
+      tester,
+    ) async {
+      final backend = FakeForecastingBackend()..oldSummary = true;
+      await _pump(tester, const DatasetDetailScreen(id: 2), backend: backend);
+
+      expect(find.text('Celdas nuevas'), findsOneWidget);
+      expect(find.text('Resumen de limpieza'), findsNothing);
+    });
+
+    testWidgets('a file that complements another says the counts are its own', (
+      tester,
+    ) async {
+      final backend = FakeForecastingBackend();
+      backend.datasets.firstWhere((d) => d['id'] == 2)['base_dataset_id'] = 1;
+      await _pump(tester, const DatasetDetailScreen(id: 2), backend: backend);
+
+      expect(find.textContaining('solo del archivo que subiste'), findsOneWidget);
     });
 
     testWidgets('a ready file says the training starts by itself', (
