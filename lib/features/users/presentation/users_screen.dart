@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/dialogs.dart';
+import '../../../core/network/api_exception.dart';
 import '../../../core/submit_state.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/validators.dart';
@@ -12,37 +13,47 @@ import '../../../core/widgets/auth_visuals.dart';
 import '../../../core/widgets/screen_header.dart';
 import '../../auth/data/auth_user.dart';
 import '../../auth/presentation/auth_controller.dart';
-import '../data/users_repository.dart';
 import 'users_controller.dart';
 import 'users_widgets.dart';
 import '../../home/settings_menu.dart';
 
+/// The controller comes from above: it outlives this tab because the queue of
+/// decisions and the Usuarios badge need it whichever tab is open.
 class UsersScreen extends StatelessWidget {
   const UsersScreen({super.key});
 
-  @override
-  Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (context) => UsersController(context.read<UsersRepository>())..load(),
-      child: const _UsersView(),
-    );
+  /// Sends the decision and says how it ended: done, saved for later, or refused.
+  Future<void> _decide(BuildContext context, AuthUser user, {required bool approve}) async {
+    final controller = context.read<UsersController>();
+    final messenger = ScaffoldMessenger.of(context);
+    final name = user.fullName;
+    try {
+      final outcome = await (approve ? controller.approve(user) : controller.reject(user));
+      final queued = outcome == ReviewOutcome.queued;
+      messenger.showSnackBar(
+        SnackBar(
+          duration: Duration(seconds: queued ? 7 : 4),
+          content: Text(switch ((queued, approve)) {
+            (true, true) => 'Sin conexión. La aprobación de $name quedó guardada: se enviará al reconectar y entonces saldrá el correo.',
+            (true, false) => 'Sin conexión. El rechazo de $name quedó guardado: se enviará al reconectar y entonces saldrá el correo.',
+            (false, true) => 'Solicitud aprobada. $name ya puede iniciar sesión.',
+            (false, false) => 'Solicitud rechazada.',
+          }),
+        ),
+      );
+    } on ApiException catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+    }
   }
-}
-
-class _UsersView extends StatelessWidget {
-  const _UsersView();
 
   Future<void> _reject(BuildContext context, AuthUser user) async {
-    final controller = context.read<UsersController>();
     final ok = await confirmDialog(
       context,
       title: '¿Rechazar solicitud?',
       message: '${user.fullName} no tendrá acceso al sistema.',
       action: 'Rechazar',
     );
-    if (ok && context.mounted) {
-      await runAction(context, () => controller.reject(user), 'Solicitud rechazada.');
-    }
+    if (ok && context.mounted) await _decide(context, user, approve: false);
   }
 
   Future<void> _toggle(BuildContext context, AuthUser user) async {
@@ -93,7 +104,7 @@ class _UsersView extends StatelessWidget {
                   value: users.accounts.where((u) => u.isActive).length,
                   color: AppColors.success,
                 ),
-                StatTile(label: 'Pendientes', value: users.pending.length, color: AppColors.amber),
+                StatTile(label: 'Pendientes', value: users.awaitingDecision.length, color: AppColors.amber),
               ],
             )
           : null,
@@ -118,6 +129,7 @@ class _UsersView extends StatelessWidget {
 
     final pending = users.pending;
     final accounts = users.accounts;
+    final waiting = users.awaitingDecision.length;
 
     return RefreshIndicator(
       color: AppColors.blue,
@@ -132,13 +144,25 @@ class _UsersView extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (users.loadError != null) ...[ErrorBanner(users.loadError!), const SizedBox(height: 16)],
+                const _ReviewSyncBanner(),
+                if (users.offline) ...[
+                  const NoticeBanner(
+                    icon: Icons.cloud_off_outlined,
+                    text:
+                        'No se pudo actualizar: sin conexión. Ves los últimos datos recibidos; lo que apruebes o rechaces se enviará al reconectar.',
+                  ),
+                  const SizedBox(height: 16),
+                ] else if (users.loadError != null) ...[
+                  ErrorBanner(users.loadError!),
+                  const SizedBox(height: 16),
+                ],
                 SectionTitle(
                   'Solicitudes',
-                  trailing: switch (pending.length) {
-                    0 => null,
+                  trailing: switch (waiting) {
+                    0 when pending.isEmpty => null,
+                    0 => '${pending.length} por sincronizar',
                     1 => '1 pendiente',
-                    final n => '$n pendientes',
+                    _ => '$waiting pendientes',
                   },
                 ),
                 const SizedBox(height: 12),
@@ -149,12 +173,10 @@ class _UsersView extends StatelessWidget {
                     PendingRequestCard(
                       user: user,
                       busy: users.isBusy(user.id),
-                      onApprove: () => runAction(
-                        context,
-                        () => context.read<UsersController>().approve(user),
-                        'Solicitud aprobada. ${user.fullName} ya puede iniciar sesión.',
-                      ),
+                      onApprove: () => _decide(context, user, approve: true),
                       onReject: () => _reject(context, user),
+                      queuedApproval: users.queuedReview(user.id)?.approve,
+                      onUndo: users.syncing ? null : () => users.cancelQueued(user.id),
                     ),
                     const SizedBox(height: 12),
                   ],
@@ -178,6 +200,51 @@ class _UsersView extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Decisions waiting to be sent and the result of the last sync. Renders nothing
+/// when there is nothing to say.
+class _ReviewSyncBanner extends StatelessWidget {
+  const _ReviewSyncBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final users = context.watch<UsersController>();
+    final count = users.queuedCount;
+    final notice = users.syncNotice;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (count > 0) ...[
+          NoticeBanner(
+            text: [
+              count == 1 ? '1 decisión pendiente de sincronizar.' : '$count decisiones pendientes de sincronizar.',
+              users.syncIssue ??
+                  (count == 1
+                      ? 'Se enviará al servidor cuando se recupere la conexión; entonces saldrá el correo.'
+                      : 'Se enviarán al servidor cuando se recupere la conexión; entonces saldrán los correos.'),
+            ].join(' '),
+            actionLabel: users.syncing ? 'Sincronizando…' : 'Reintentar ahora',
+            onAction: users.syncing ? null : users.syncQueue,
+          ),
+          const SizedBox(height: 16),
+        ],
+        if (notice != null) ...[
+          if (users.syncNoticeIsProblem)
+            NoticeBanner(text: notice, onClose: users.dismissSyncNotice)
+          else
+            NoticeBanner(
+              text: notice,
+              icon: Icons.cloud_done_outlined,
+              background: const Color(0xFFE8F8EE),
+              foreground: AppColors.success,
+              onClose: users.dismissSyncNotice,
+            ),
+          const SizedBox(height: 16),
+        ],
+      ],
     );
   }
 }

@@ -27,6 +27,9 @@ import 'features/auth/presentation/screens/register_screen.dart';
 import 'features/auth/presentation/screens/reset_args.dart';
 import 'features/home/main_shell.dart';
 import 'features/home/settings_screen.dart';
+import 'features/users/data/pending_review.dart';
+import 'features/users/data/users_repository.dart';
+import 'features/users/presentation/users_controller.dart';
 import 'features/users/presentation/users_screen.dart';
 import 'splash_screen.dart';
 
@@ -76,6 +79,13 @@ GoRouter buildRouter(AuthController auth) {
             ChangeNotifierProvider(
               create: (context) =>
                   DatasetsController(context.read<DatasetsRepository>()),
+            ),
+            // Created on first read, which only the supervisor's bar does.
+            ChangeNotifierProvider(
+              create: (context) => UsersController(
+                context.read<UsersRepository>(),
+                store: PrefsPendingReviewStore(auth.user!.id),
+              )..load(),
             ),
           ],
           child: child,

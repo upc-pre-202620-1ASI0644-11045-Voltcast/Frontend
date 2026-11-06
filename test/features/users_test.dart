@@ -5,6 +5,7 @@ import 'package:actualvoltcast/core/network/api_client.dart';
 import 'package:actualvoltcast/core/network/api_exception.dart';
 import 'package:actualvoltcast/core/theme/app_theme.dart';
 import 'package:actualvoltcast/features/auth/data/auth_user.dart';
+import 'package:actualvoltcast/features/users/data/pending_review.dart';
 import 'package:actualvoltcast/features/users/data/users_repository.dart';
 import 'package:actualvoltcast/features/users/presentation/users_controller.dart';
 import 'package:actualvoltcast/features/users/presentation/users_screen.dart';
@@ -19,6 +20,15 @@ UsersRepository _repo(FakeUsersBackend backend) => UsersRepository(
       ApiClient(tokenStorage: MemoryTokens(access: 'token'), httpClient: backend.client),
     );
 
+UsersController _controller(FakeUsersBackend backend) =>
+    UsersController(_repo(backend), store: MemoryPendingReviewStore());
+
+/// The screen under the controller the session provides in the app.
+Widget _app(FakeUsersBackend backend) => ChangeNotifierProvider(
+      create: (_) => _controller(backend)..load(),
+      child: MaterialApp(theme: AppTheme.light(), home: const UsersScreen()),
+    );
+
 Future<FakeUsersBackend> _pumpScreen(WidgetTester tester) async {
   // Tall phone so every card is built and tappable without scrolling.
   tester.view.physicalSize = const Size(420, 2400);
@@ -26,12 +36,7 @@ Future<FakeUsersBackend> _pumpScreen(WidgetTester tester) async {
   addTearDown(tester.view.reset);
 
   final backend = FakeUsersBackend();
-  await tester.pumpWidget(
-    Provider<UsersRepository>.value(
-      value: _repo(backend),
-      child: MaterialApp(theme: AppTheme.light(), home: const UsersScreen()),
-    ),
-  );
+  await tester.pumpWidget(_app(backend));
   await tester.pumpAndSettle();
   return backend;
 }
@@ -85,7 +90,7 @@ void main() {
 
   group('UsersController', () {
     test('splits pending requests from accounts and hides rejected ones', () async {
-      final controller = UsersController(_repo(FakeUsersBackend()));
+      final controller = _controller(FakeUsersBackend());
       await controller.load();
 
       expect(controller.pending.map((u) => u.id), [4, 5]);
@@ -93,7 +98,7 @@ void main() {
     });
 
     test('approving moves a request into accounts', () async {
-      final controller = UsersController(_repo(FakeUsersBackend()));
+      final controller = _controller(FakeUsersBackend());
       await controller.load();
 
       await controller.approve(controller.pending.first);
@@ -105,7 +110,7 @@ void main() {
 
     test('a failed action rethrows, clears busy and keeps the list', () async {
       final backend = FakeUsersBackend();
-      final controller = UsersController(_repo(backend));
+      final controller = _controller(backend);
       await controller.load();
 
       backend.failWith = (status: 400, detail: 'Only pending requests can be approved');
@@ -119,7 +124,7 @@ void main() {
 
     test('load failure is exposed and does not throw', () async {
       final backend = FakeUsersBackend()..failWith = (status: 403, detail: 'Forbidden');
-      final controller = UsersController(_repo(backend));
+      final controller = _controller(backend);
 
       await controller.load();
 
@@ -248,12 +253,7 @@ void main() {
       addTearDown(tester.view.reset);
 
       final backend = FakeUsersBackend()..failWith = (status: 500, detail: 'Internal error: boom');
-      await tester.pumpWidget(
-        Provider<UsersRepository>.value(
-          value: _repo(backend),
-          child: MaterialApp(theme: AppTheme.light(), home: const UsersScreen()),
-        ),
-      );
+      await tester.pumpWidget(_app(backend));
       await tester.pumpAndSettle();
 
       expect(find.text('Error del servidor. Inténtalo más tarde.'), findsOneWidget);
