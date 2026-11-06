@@ -4,7 +4,6 @@ import 'package:provider/provider.dart';
 
 import '../../../core/format.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/electric_border.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../core/widgets/load_error.dart';
 import '../../../core/widgets/screen_header.dart';
@@ -370,7 +369,8 @@ class _CellCard extends StatelessWidget {
           'Celda ${item.cellName}, ${over ? 'supera el límite, ' : ''}${volts(item.voltage)}'
           '${max == null ? ', sin límite' : ', límite ${volts(max, 2)}'}',
       child: Material(
-        color: Colors.white,
+        // A cell over the limit gets a still red tint and border, no motion.
+        color: over ? AppColors.errorSoft : Colors.white,
         borderRadius: AppRadius.large,
         child: InkWell(
           onTap: onTap,
@@ -379,8 +379,10 @@ class _CellCard extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
               borderRadius: AppRadius.large,
-              // The electric border is what marks a cell over the limit.
-              border: Border.all(color: AppColors.border),
+              border: Border.all(
+                color: over ? AppColors.error : AppColors.border,
+                width: over ? 1.5 : 1,
+              ),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -464,14 +466,6 @@ class _CellCard extends StatelessWidget {
         ),
       ),
     );
-    // Only the cards over the limit crackle; the rest stay still.
-    return over
-        ? ElectricBorder(
-            // The blue of the section headers, so the border matches the screen.
-            color: AppColors.headerTop,
-            borderRadius: AppRadius.large.topLeft.x,
-            child: card,
-          )
-        : card;
+    return card;
   }
 }

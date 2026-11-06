@@ -5,7 +5,6 @@ import 'package:actualvoltcast/core/network/api_client.dart';
 import 'package:actualvoltcast/core/network/api_exception.dart';
 import 'package:actualvoltcast/core/network/backend_messages.dart';
 import 'package:actualvoltcast/core/theme/app_theme.dart';
-import 'package:actualvoltcast/core/widgets/electric_border.dart';
 import 'package:actualvoltcast/features/forecasting/data/forecast.dart';
 import 'package:actualvoltcast/features/forecasting/data/forecast_cache.dart';
 import 'package:actualvoltcast/features/forecasting/data/forecasting_repository.dart';
@@ -60,12 +59,7 @@ Future<GoRouter> _pumpScreen(
   ForecastingRepository repo, {
   required Widget home,
   List<String>? pushed,
-  // The electric border never stops moving, which pumpAndSettle cannot wait for.
-  bool animations = false,
 }) async {
-  tester.platformDispatcher.accessibilityFeaturesTestValue =
-      FakeAccessibilityFeatures(disableAnimations: !animations);
-  addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
   tester.view.physicalSize = const Size(420, 2400);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -89,13 +83,7 @@ Future<GoRouter> _pumpScreen(
       child: MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
     ),
   );
-  if (animations) {
-    for (var i = 0; i < 8; i++) {
-      await tester.pump(const Duration(milliseconds: 100));
-    }
-  } else {
-    await tester.pumpAndSettle();
-  }
+  await tester.pumpAndSettle();
   return router;
 }
 
@@ -326,8 +314,9 @@ void main() {
         final a7 = tester.getRect(find.text('Celda A7'));
         final a1 = tester.getRect(find.text('Celda A1'));
         final b1 = tester.getRect(find.text('Celda B1'));
-        // A7 (over the limit) leads; A1 sits right under it, in the same column.
-        expect(a7.left, a1.left);
+        // A7 (over the limit) leads; A1 sits right under it, in the same column
+        // (A7's thicker border moves its text half a pixel).
+        expect(a7.left, closeTo(a1.left, 1));
         expect(a1.top, greaterThan(a7.top));
         // Section B starts below section A.
         expect(b1.top, greaterThan(a1.top));
@@ -351,7 +340,7 @@ void main() {
       expect(tester.getTopLeft(find.text('Celda A8')).dx, lessThan(420));
     });
 
-    testWidgets('only the cell over the limit gets the electric border', (
+    testWidgets('only the cell over the limit is marked in red', (
       tester,
     ) async {
       await _pumpScreen(
@@ -360,32 +349,37 @@ void main() {
         home: const ForecastsScreen(),
       );
 
-      expect(find.byType(ElectricBorder), findsOneWidget);
-      expect(
-        find.descendant(
-          of: find.byType(ElectricBorder),
-          matching: find.text('Celda A7'),
-        ),
-        findsOneWidget,
-      );
+      // The closest of each is the card itself: its fill and its border.
+      Color fill(String cell) => tester
+          .widget<Material>(
+            find
+                .ancestor(of: find.text(cell), matching: find.byType(Material))
+                .first,
+          )
+          .color!;
+      Color border(String cell) {
+        final box = tester.widget<Container>(
+          find
+              .ancestor(of: find.text(cell), matching: find.byType(Container))
+              .first,
+        );
+        return (box.decoration! as BoxDecoration).border!.top.color;
+      }
+
+      expect(fill('Celda A7'), AppColors.errorSoft);
+      expect(border('Celda A7'), AppColors.error);
+      expect(fill('Celda A1'), Colors.white);
+      expect(border('Celda A1'), AppColors.border);
     });
 
-    testWidgets('the border moves, and stands still with animations off', (
-      tester,
-    ) async {
+    testWidgets('a cell over the limit does not animate', (tester) async {
       await _pumpScreen(
         tester,
         _repo(FakeForecastingBackend()),
         home: const ForecastsScreen(),
-        animations: true,
       );
-      expect(tester.hasRunningAnimations, isTrue);
-      await tester.pump(const Duration(milliseconds: 300));
-      expect(tester.takeException(), isNull);
 
-      tester.platformDispatcher.accessibilityFeaturesTestValue =
-          const FakeAccessibilityFeatures(disableAnimations: true);
-      await tester.pump();
+      expect(find.text('Celda A7'), findsOneWidget);
       expect(tester.hasRunningAnimations, isFalse);
     });
 
