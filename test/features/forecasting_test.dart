@@ -629,6 +629,46 @@ void main() {
       },
     );
 
+    group('chart default day', () {
+      ForecastItem day(int d, double voltage, {bool exceeds = false}) => ForecastItem(
+        cellId: 2,
+        cellName: 'A7',
+        date: DateTime(2026, 11, d),
+        voltage: voltage,
+        exceeds: exceeds,
+      );
+
+      Future<void> pumpChart(WidgetTester tester, List<ForecastItem> items) => tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: ForecastChart(items: items)),
+        ),
+      );
+
+      testWidgets('opens on the highest day, and a touch moves away from it', (tester) async {
+        await pumpChart(tester, [day(1, 3.1), day(2, 3.4, exceeds: true), day(3, 3.2)]);
+
+        expect(find.textContaining('3.400 V'), findsOneWidget);
+        expect(find.text('Supera el límite'), findsOneWidget);
+
+        await tester.tapAt(
+          tester.getTopLeft(
+                find.descendant(of: find.byType(ForecastChart), matching: find.byType(CustomPaint)).last,
+              ) +
+              const Offset(ForecastChartPainter.left, 100),
+        );
+        await tester.pump();
+
+        expect(find.textContaining('3.100 V'), findsOneWidget);
+        expect(find.text('Supera el límite'), findsNothing);
+      });
+
+      testWidgets('a forecast of a single day still shows its value', (tester) async {
+        await pumpChart(tester, [day(1, 3.3)]);
+
+        expect(find.textContaining('3.300 V'), findsOneWidget);
+      });
+    });
+
     testWidgets('lists the dates over the limit as one run of days', (
       tester,
     ) async {

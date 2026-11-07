@@ -8,7 +8,7 @@ import '../data/forecast.dart';
 import 'forecast_widgets.dart';
 
 /// Voltage of one cell over the forecast horizon, with the allowed limit as a
-/// dashed line. Touch or drag to read the value of a day.
+/// dashed line. Opens on the highest day; touch or drag to read another.
 class ForecastChart extends StatefulWidget {
   const ForecastChart({super.key, required this.items});
 
@@ -25,6 +25,19 @@ class _ForecastChartState extends State<ForecastChart> {
   double? get _limit =>
       widget.items.map((i) => i.maxVoltage).whereType<double>().lastOrNull;
 
+  /// The day the user touched, or else the highest one (the first, on a tie):
+  /// whether a cell goes over the limit is what this screen is read for.
+  int get _shown {
+    final items = widget.items;
+    final touched = _selected;
+    if (touched != null && touched < items.length) return touched;
+    var peak = 0;
+    for (var i = 1; i < items.length; i++) {
+      if (items[i].voltage > items[peak].voltage) peak = i;
+    }
+    return peak;
+  }
+
   void _select(double dx, double width) {
     final n = widget.items.length;
     if (n < 2) return;
@@ -36,9 +49,8 @@ class _ForecastChartState extends State<ForecastChart> {
   @override
   Widget build(BuildContext context) {
     final items = widget.items;
-    final selected = _selected != null && _selected! < items.length
-        ? items[_selected!]
-        : null;
+    final shown = _shown;
+    final selected = items[shown];
     final values = items.map((i) => i.voltage);
 
     return Column(
@@ -46,48 +58,40 @@ class _ForecastChartState extends State<ForecastChart> {
       children: [
         ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 40),
-          child: selected == null
-              ? const Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    'Toca o arrastra para ver los valores',
-                    style: TextStyle(fontSize: 13, color: AppColors.muted),
-                  ),
-                )
-              : Wrap(
-                  crossAxisAlignment: WrapCrossAlignment.center,
-                  spacing: 8,
+          child: Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 8,
+            children: [
+              Text(
+                '${formatShortDate(selected.date)} · ${volts(selected.voltage)}',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.ink,
+                ),
+              ),
+              if (selected.exceeds)
+                const Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 18,
+                      color: AppColors.error,
+                    ),
+                    SizedBox(width: 4),
                     Text(
-                      '${formatShortDate(selected.date)} · ${volts(selected.voltage)}',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w800,
-                        color: AppColors.ink,
+                      'Supera el límite',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.error,
                       ),
                     ),
-                    if (selected.exceeds)
-                      const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.warning_amber_rounded,
-                            size: 18,
-                            color: AppColors.error,
-                          ),
-                          SizedBox(width: 4),
-                          Text(
-                            'Supera el límite',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.error,
-                            ),
-                          ),
-                        ],
-                      ),
                   ],
                 ),
+            ],
+          ),
         ),
         Semantics(
           label:
@@ -104,7 +108,7 @@ class _ForecastChartState extends State<ForecastChart> {
                 painter: ForecastChartPainter(
                   items: items,
                   limit: _limit,
-                  selected: _selected,
+                  selected: shown,
                 ),
               ),
             ),
