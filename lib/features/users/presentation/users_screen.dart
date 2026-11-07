@@ -34,8 +34,8 @@ class UsersScreen extends StatelessWidget {
         SnackBar(
           duration: Duration(seconds: queued ? 7 : 4),
           content: Text(switch ((queued, approve)) {
-            (true, true) => 'Sin conexión. La aprobación de $name quedó guardada: se enviará al reconectar y entonces saldrá el correo.',
-            (true, false) => 'Sin conexión. El rechazo de $name quedó guardado: se enviará al reconectar y entonces saldrá el correo.',
+            (true, true) => 'Sin conexión. La aprobación de $name se enviará al reconectar.',
+            (true, false) => 'Sin conexión. El rechazo de $name se enviará al reconectar.',
             (false, true) => 'Solicitud aprobada. $name ya puede iniciar sesión.',
             (false, false) => 'Solicitud rechazada.',
           }),
@@ -148,8 +148,7 @@ class UsersScreen extends StatelessWidget {
                 if (users.offline) ...[
                   const NoticeBanner(
                     icon: Icons.cloud_off_outlined,
-                    text:
-                        'No se pudo actualizar: sin conexión. Ves los últimos datos recibidos; lo que apruebes o rechaces se enviará al reconectar.',
+                    text: 'Sin conexión. Ves los últimos datos recibidos.',
                   ),
                   const SizedBox(height: 16),
                 ] else if (users.loadError != null) ...[
@@ -221,10 +220,7 @@ class _ReviewSyncBanner extends StatelessWidget {
           NoticeBanner(
             text: [
               count == 1 ? '1 decisión pendiente de sincronizar.' : '$count decisiones pendientes de sincronizar.',
-              users.syncIssue ??
-                  (count == 1
-                      ? 'Se enviará al servidor cuando se recupere la conexión; entonces saldrá el correo.'
-                      : 'Se enviarán al servidor cuando se recupere la conexión; entonces saldrán los correos.'),
+              if (users.syncIssue != null) users.syncIssue!,
             ].join(' '),
             actionLabel: users.syncing ? 'Sincronizando…' : 'Reintentar ahora',
             onAction: users.syncing ? null : users.syncQueue,

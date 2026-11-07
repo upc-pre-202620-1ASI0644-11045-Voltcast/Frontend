@@ -186,8 +186,7 @@ class _ModelViewState extends State<_ModelView> {
       const SectionTitle('Pronóstico frente a lo medido'),
       const SizedBox(height: 8),
       Text(
-        'Comparación de ${_span(c)}: lo que el modelo pronosticó frente a '
-        'lo que realmente se midió. Son días que el modelo no usó para entrenar.',
+        'Comparación de ${_span(c)}, días que el modelo no usó para entrenar.',
         style: const TextStyle(
           fontSize: 13,
           height: 1.4,

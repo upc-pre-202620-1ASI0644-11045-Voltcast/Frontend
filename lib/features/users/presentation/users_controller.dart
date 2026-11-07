@@ -273,8 +273,8 @@ class UsersController extends ChangeNotifier {
     if (_queue.isEmpty) _stopRetry();
     if (sent > 0 || problems.isNotEmpty) {
       _syncNotice = [
-        if (sent == 1) 'Se envió 1 decisión al servidor, que notificará por correo a la persona.',
-        if (sent > 1) 'Se enviaron $sent decisiones al servidor, que notificará por correo a cada persona.',
+        if (sent == 1) 'Se envió 1 decisión; se notificará por correo.',
+        if (sent > 1) 'Se enviaron $sent decisiones; se notificará por correo.',
         ...problems,
       ].join(' ');
       _syncNoticeIsProblem = problems.isNotEmpty;

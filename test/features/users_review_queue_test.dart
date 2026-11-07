@@ -582,7 +582,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Rechazo por sincronizar'), findsOneWidget);
-      expect(find.textContaining('El rechazo de Mariana Torres quedó guardado'), findsOneWidget);
+      expect(find.textContaining('El rechazo de Mariana Torres se enviará al reconectar'), findsOneWidget);
       expect(store.reviews.single.approve, isFalse);
     });
 
@@ -643,7 +643,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Mariana Torres'), findsOneWidget);
-      expect(find.textContaining('No se pudo actualizar: sin conexión'), findsOneWidget);
+      expect(find.textContaining('Sin conexión. Ves los últimos datos'), findsOneWidget);
       expect(find.textContaining('No se pudo conectar'), findsNothing);
     });
 

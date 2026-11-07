@@ -1095,40 +1095,18 @@ class _ComponentDetail extends StatelessWidget {
                     ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-                      child: Column(
-                        children: [
-                          Expanded(
-                            child: component == null
-                                ? Center(
-                                    child: AspectRatio(
-                                      aspectRatio: 0.3,
-                                      child: const CustomPaint(painter: _EmptyBarPainter()),
-                                    ),
-                                  )
-                                : RotatableBar(
-                                    key: const ValueKey('detail-bar'),
-                                    type: focus,
-                                    serial: component.serialCode,
-                                  ),
-                          ),
-                          if (component != null)
-                            const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.threesixty, size: 16, color: AppColors.muted),
-                                SizedBox(width: 6),
-                                Flexible(
-                                  child: Text(
-                                    'Desliza para girar',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(fontSize: 12, color: AppColors.muted),
-                                  ),
-                                ),
-                              ],
+                      child: component == null
+                          ? Center(
+                              child: AspectRatio(
+                                aspectRatio: 0.3,
+                                child: const CustomPaint(painter: _EmptyBarPainter()),
+                              ),
+                            )
+                          : RotatableBar(
+                              key: const ValueKey('detail-bar'),
+                              type: focus,
+                              serial: component.serialCode,
                             ),
-                        ],
-                      ),
                     ),
                   ],
                 ),
