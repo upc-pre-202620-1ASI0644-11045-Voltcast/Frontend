@@ -410,7 +410,7 @@ void main() {
       final backend = FakeForecastingBackend();
       await _pumpScreen(tester, _repo(backend), home: const ForecastsScreen());
 
-      await tester.tap(find.text('Solo las que superan el límite'));
+      await tester.tap(find.text('Solo alertas'));
       await tester.pumpAndSettle();
 
       expect(backend.requests.last.url.queryParameters['exceeds'], 'true');

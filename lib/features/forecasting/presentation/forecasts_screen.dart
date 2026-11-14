@@ -31,12 +31,7 @@ class ForecastsScreen extends StatelessWidget {
 class _ForecastsView extends StatelessWidget {
   const _ForecastsView();
 
-  static const _quickDays = [
-    ('Hoy', 0),
-    ('Mañana', 1),
-    ('En 3 días', 3),
-    ('En 7 días', 7),
-  ];
+  static const _quickDays = [('Mañana', 1), ('En 2 días', 2)];
 
   Future<void> _pickDate(BuildContext context, ForecastsController c) async {
     final range = c.selectableRange;
@@ -204,9 +199,8 @@ class _ForecastsView extends StatelessWidget {
     // The card grows with the user's text size so nothing is cut.
     final scale = MediaQuery.textScalerOf(context).scale(14) / 14;
     final cardHeight = 118 * scale.clamp(1.0, 1.6);
-    // Two columns fit and a slice of the third shows that the row slides.
-    final cardWidth =
-        (MediaQuery.sizeOf(context).width - 16 - 12 - 12 - 20) / 2;
+    // Exactly two columns fit between the 16px side margins.
+    final cardWidth = (MediaQuery.sizeOf(context).width - 16 - 16 - 12) / 2;
     final over = items.where((i) => i.exceeds).length;
     final title = name == 'Otras' ? 'Otras celdas' : 'Sección $name';
     return [
@@ -226,6 +220,7 @@ class _ForecastsView extends StatelessWidget {
           height: cardHeight * 2 + 12,
           child: GridView.builder(
             scrollDirection: Axis.horizontal,
+            physics: _ColumnSnapPhysics(extent: cardWidth + 12),
             padding: const EdgeInsets.symmetric(horizontal: 16),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: 2,
@@ -252,6 +247,45 @@ class _ForecastsView extends StatelessWidget {
       if (result.availableTo != null) 'to': apiDate(result.availableTo!),
     },
   ).toString();
+}
+
+/// Settles the sliding row on a whole column; a flick moves one column further.
+class _ColumnSnapPhysics extends ScrollPhysics {
+  const _ColumnSnapPhysics({required this.extent, super.parent});
+
+  final double extent;
+
+  @override
+  _ColumnSnapPhysics applyTo(ScrollPhysics? ancestor) =>
+      _ColumnSnapPhysics(extent: extent, parent: buildParent(ancestor));
+
+  @override
+  Simulation? createBallisticSimulation(
+    ScrollMetrics position,
+    double velocity,
+  ) {
+    final tolerance = toleranceFor(position);
+    // Past the edges the default (bounce back) behaviour applies.
+    if ((velocity <= 0 && position.pixels <= position.minScrollExtent) ||
+        (velocity >= 0 && position.pixels >= position.maxScrollExtent)) {
+      return super.createBallisticSimulation(position, velocity);
+    }
+    var column = position.pixels / extent;
+    if (velocity > tolerance.velocity) column += 0.5;
+    if (velocity < -tolerance.velocity) column -= 0.5;
+    final target = (column.roundToDouble() * extent).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    if ((target - position.pixels).abs() < tolerance.distance) return null;
+    return ScrollSpringSimulation(
+      spring,
+      position.pixels,
+      target,
+      velocity,
+      tolerance: tolerance,
+    );
+  }
 }
 
 class _Controls extends StatelessWidget {
@@ -292,34 +326,33 @@ class _Controls extends StatelessWidget {
             ),
             const SizedBox(height: 10),
           ],
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                for (final (label, offset) in quickDays) ...[
-                  _DayChip(
-                    label: label,
-                    day: c.today.add(Duration(days: offset)),
-                    controller: c,
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                ActionChip(
-                  avatar: const Icon(Icons.calendar_month_outlined, size: 18),
-                  label: const Text('Elegir fecha'),
-                  onPressed: c.selectableRange == null ? null : onPick,
+          Wrap(
+            alignment: WrapAlignment.center,
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final (label, offset) in quickDays)
+                _DayChip(
+                  label: label,
+                  day: c.today.add(Duration(days: offset)),
+                  controller: c,
                 ),
-              ],
-            ),
+              ActionChip(
+                shape: const StadiumBorder(),
+                avatar: const Icon(Icons.calendar_month_outlined, size: 18),
+                label: const Text('Elegir fecha'),
+                onPressed: c.selectableRange == null ? null : onPick,
+              ),
+            ],
           ),
           const SizedBox(height: 12),
-          SearchField(hint: 'Buscar celda (A1, B12…)', onChanged: c.setQuery),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: FilterChip(
-              avatar: const Icon(Icons.warning_amber_rounded, size: 18),
-              label: const Text('Solo las que superan el límite'),
+          SearchField(
+            hint: 'Buscar celda (A1, B12…)',
+            onChanged: c.setQuery,
+            suffix: FilterChip(
+              shape: const StadiumBorder(),
+              visualDensity: VisualDensity.compact,
+              label: const Text('Solo alertas'),
               selected: c.onlyExceeds,
               onSelected: c.setOnlyExceeds,
             ),
@@ -345,6 +378,7 @@ class _DayChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final selectable = controller.isSelectable(day);
     return ChoiceChip(
+      shape: const StadiumBorder(),
       label: Text(label),
       selected: controller.date == day,
       onSelected: selectable ? (_) => controller.setDate(day) : null,

@@ -37,5 +37,7 @@ String decimal(double value, int digits) =>
     value.toStringAsFixed(digits).replaceAll('.', ',');
 
 /// "12 ene 2026 · 14:32"
+String formatTime(DateTime date) => '${_two(date.hour)}:${_two(date.minute)}';
+
 String formatDateTime(DateTime date) =>
-    '${formatShortDate(date)} · ${_two(date.hour)}:${_two(date.minute)}';
+    '${formatShortDate(date)} · ${formatTime(date)}';

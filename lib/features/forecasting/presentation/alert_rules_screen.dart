@@ -113,22 +113,6 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> with SubmitState {
                           const SizedBox(height: 12),
                         ],
                         const SizedBox(height: 8),
-                        Center(
-                          child: Container(
-                            width: 64,
-                            height: 64,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFFFF1D6),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.bolt,
-                              size: 30,
-                              color: AppColors.amber,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
                         const Center(
                           child: Text(
                             'VOLTAJE MÁXIMO (V)',

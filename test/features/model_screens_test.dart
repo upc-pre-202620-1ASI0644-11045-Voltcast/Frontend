@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:actualvoltcast/core/network/api_client.dart';
 import 'package:actualvoltcast/core/format.dart';
 import 'package:actualvoltcast/core/theme/app_theme.dart';
-import 'package:actualvoltcast/core/widgets/app_buttons.dart';
 import 'package:actualvoltcast/features/auth/data/auth_repository.dart';
 import 'package:actualvoltcast/features/auth/data/auth_user.dart';
 import 'package:actualvoltcast/features/auth/presentation/auth_controller.dart';
@@ -156,7 +155,8 @@ void main() {
           find.textContaining('Error promedio de ese día:'),
           findsOneWidget,
         );
-        expect(find.text('Pronóstico'), findsNWidgets(4)); // one label per card
+        // One "Real · Pronóstico · Diferencia" line per card.
+        expect(find.textContaining('· Pronóstico '), findsNWidgets(4));
         // B12 (id 4) errs the most; its error is shown with a comma.
         expect(find.text('B12'), findsOneWidget);
         expect(find.byIcon(Icons.warning_amber_rounded), findsWidgets);
@@ -351,8 +351,7 @@ void main() {
     testWidgets('the cards fit 360 px even with a long cell name', (
       tester,
     ) async {
-      final backend = FakeForecastingBackend()
-        ..cells['A130-LARGO-123456'] = 9;
+      final backend = FakeForecastingBackend()..cells['A130-LARGO-123456'] = 9;
       tester.view.physicalSize = const Size(360, 2400);
       await _pump(tester, backend, const ModelScreen());
       // _pump sets 420 px; narrow it before the cards are built again.
@@ -433,7 +432,14 @@ void main() {
       );
 
       expect(
-        tester.widget<SecondaryButton>(find.byType(SecondaryButton)).onPressed,
+        tester
+            .widget<TextButton>(
+              find.ancestor(
+                of: find.text('Descargar todas las celdas (Excel)'),
+                matching: find.byWidgetPredicate((w) => w is TextButton),
+              ),
+            )
+            .onPressed,
         isNull,
       );
       expect(

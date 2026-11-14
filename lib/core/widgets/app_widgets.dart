@@ -60,10 +60,11 @@ class StatRow extends StatelessWidget {
 
 /// Rounded white search box ("Buscar por código…").
 class SearchField extends StatelessWidget {
-  const SearchField({super.key, required this.onChanged, this.hint = 'Buscar por código…'});
+  const SearchField({super.key, required this.onChanged, this.hint = 'Buscar por código…', this.suffix});
 
   final ValueChanged<String> onChanged;
   final String hint;
+  final Widget? suffix;
 
   @override
   Widget build(BuildContext context) {
@@ -75,6 +76,8 @@ class SearchField extends StatelessWidget {
         hintText: hint,
         hintStyle: const TextStyle(fontSize: 15, color: AppColors.muted),
         prefixIcon: const Icon(Icons.search, color: AppColors.muted, size: 20),
+        suffixIcon: suffix == null ? null : Padding(padding: const EdgeInsets.only(right: 8), child: suffix),
+        suffixIconConstraints: const BoxConstraints(),
         filled: true,
         fillColor: Colors.white,
         contentPadding: const EdgeInsets.symmetric(vertical: 14),

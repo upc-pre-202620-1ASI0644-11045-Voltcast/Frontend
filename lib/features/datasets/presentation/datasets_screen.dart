@@ -81,8 +81,7 @@ class _DatasetsScreenState extends State<DatasetsScreen> {
     if (!lower.endsWith('.xlsx') && !lower.endsWith('.xlsm')) {
       // The picker already filters, but a drag-and-drop or another picker may not.
       setState(
-        () => _uploadError =
-            'El formato no es compatible. Sube un archivo de Excel (.xlsx o .xlsm).',
+        () => _uploadError = 'El formato no es compatible. Sube un archivo de Excel (.xlsx o .xlsm).',
       );
       return;
     }
@@ -98,7 +97,9 @@ class _DatasetsScreenState extends State<DatasetsScreen> {
       );
       messenger.showSnackBar(
         SnackBar(
-          content: Text('«${file.name}» se subió correctamente y se está procesando.'),
+          content: Text(
+            '«${file.name}» se subió correctamente y se está procesando.',
+          ),
         ),
       );
     } on ApiException catch (e) {
@@ -313,7 +314,6 @@ class _DatasetCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final d = dataset;
-    final s = d.summary;
     const small = TextStyle(fontSize: 13, color: AppColors.muted);
     return Padding(
       padding: const EdgeInsets.only(bottom: 14),
@@ -369,14 +369,10 @@ class _DatasetCard extends StatelessWidget {
                   children: [
                     Expanded(
                       child: Text(
-                        s != null
-                            ? '${s.cellCount} celdas · ${s.days} días'
-                            : d.status == DatasetStatus.failed
+                        d.status == DatasetStatus.failed
                             ? 'Revisar estructura'
                             : '',
-                        style: d.status == DatasetStatus.failed
-                            ? small.copyWith(color: AppColors.error)
-                            : small,
+                        style: small.copyWith(color: AppColors.error),
                       ),
                     ),
                     const Text(
