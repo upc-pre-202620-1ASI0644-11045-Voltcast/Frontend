@@ -52,6 +52,10 @@ class ApiClient {
   Future<dynamic> patch(String path, {Object? body, bool auth = false}) =>
       _send('PATCH', path, body: body, auth: auth);
 
+  /// A 204 answer has no body, so this returns null.
+  Future<dynamic> delete(String path, {bool auth = false}) =>
+      _send('DELETE', path, auth: auth);
+
   Future<dynamic> _send(
     String method,
     String path, {

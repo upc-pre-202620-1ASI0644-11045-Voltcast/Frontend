@@ -89,6 +89,14 @@ class SettingsScreen extends StatelessWidget {
               subtitle: 'Qué tanto acierta el pronóstico',
               onTap: () => context.push('/model'),
             ),
+            _Entry(
+              icon: Icons.cloud_sync_outlined,
+              color: AppColors.blue,
+              soft: AppColors.blueSoft,
+              title: 'Google Drive',
+              subtitle: 'Registros de voltaje en la nube',
+              onTap: () => context.push('/drive'),
+            ),
             if (user?.isAdmin == true)
               _Entry(
                 icon: Icons.tune,
