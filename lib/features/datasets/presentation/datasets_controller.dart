@@ -58,16 +58,8 @@ class DatasetsController extends ChangeNotifier {
   }
 
   /// Rethrows [ApiException] (the 400 causes) for the screen to show.
-  Future<Dataset> upload(
-    String filename,
-    List<int> bytes, {
-    int? baseDatasetId,
-  }) async {
-    final dataset = await _repository.upload(
-      filename,
-      bytes,
-      baseDatasetId: baseDatasetId,
-    );
+  Future<Dataset> upload(String filename, List<int> bytes) async {
+    final dataset = await _repository.upload(filename, bytes);
     _replace(dataset);
     _schedule();
     return dataset;

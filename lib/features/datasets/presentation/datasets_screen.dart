@@ -69,12 +69,6 @@ class _DatasetsScreenState extends State<DatasetsScreen> {
   Future<void> _upload() async {
     final controller = context.read<DatasetsController>();
     final messenger = ScaffoldMessenger.of(context);
-    final ready = controller.items.where((d) => d.isReady).toList();
-    // Asked before the picker: a file may complement one that is already ready.
-    final choice = ready.isEmpty
-        ? (base: null as int?)
-        : await _askBase(context, ready);
-    if (choice == null || !mounted) return;
     final file = await widget.pick();
     if (file == null) return;
     final lower = file.name.toLowerCase();
@@ -90,11 +84,7 @@ class _DatasetsScreenState extends State<DatasetsScreen> {
       _uploadError = null;
     });
     try {
-      await controller.upload(
-        file.name,
-        file.bytes,
-        baseDatasetId: choice.base,
-      );
+      await controller.upload(file.name, file.bytes);
       messenger.showSnackBar(
         SnackBar(
           content: Text(
@@ -250,60 +240,6 @@ class _DatasetsScreenState extends State<DatasetsScreen> {
       ),
     );
   }
-}
-
-/// "Este archivo complementa a: …". Null when the user backs out; `base` null
-/// when the file stands alone.
-Future<({int? base})?> _askBase(BuildContext context, List<Dataset> ready) {
-  return showDialog<({int? base})>(
-    context: context,
-    builder: (context) {
-      int? selected;
-      return StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
-          title: const Text(
-            'Este archivo complementa a:',
-            style: TextStyle(fontWeight: FontWeight.w700),
-          ),
-          content: SingleChildScrollView(
-            child: RadioGroup<int?>(
-              groupValue: selected,
-              onChanged: (v) => setState(() => selected = v),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const RadioListTile<int?>(
-                    value: null,
-                    title: Text('Ninguno, es un archivo nuevo'),
-                  ),
-                  for (final d in ready)
-                    RadioListTile<int?>(
-                      value: d.id,
-                      title: Text(d.filename),
-                      subtitle: d.summary?.dateFrom == null
-                          ? null
-                          : Text(
-                              '${formatShortDate(d.summary!.dateFrom!)} – ${formatShortDate(d.summary!.dateTo!)}',
-                            ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text('Cancelar'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, (base: selected)),
-              child: const Text('Elegir archivo'),
-            ),
-          ],
-        ),
-      );
-    },
-  );
 }
 
 class _DatasetCard extends StatelessWidget {

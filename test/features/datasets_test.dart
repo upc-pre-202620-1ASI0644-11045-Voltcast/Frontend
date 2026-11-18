@@ -167,8 +167,6 @@ void main() {
 
       await tester.tap(find.text('Subir Excel'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Elegir archivo'));
-      await tester.pumpAndSettle();
 
       expect(find.text('nuevo.xlsx'), findsOneWidget);
       expect(find.text('En cola'), findsOneWidget);
@@ -185,8 +183,6 @@ void main() {
       );
 
       await tester.tap(find.text('Subir Excel'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Elegir archivo'));
       await tester.pumpAndSettle();
 
       expect(
@@ -206,43 +202,6 @@ void main() {
       );
 
       await tester.tap(find.text('Subir Excel'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Elegir archivo'));
-      await tester.pumpAndSettle();
-
-      expect(backend.requests.where((r) => r.method == 'POST'), isEmpty);
-    });
-
-    testWidgets(
-      'a file can complement a ready one and waits for confirmation',
-      (tester) async {
-        final backend = await _pump(
-          tester,
-          DatasetsScreen(pick: () => _picks('nuevo.xlsx')),
-        );
-
-        await tester.tap(find.text('Subir Excel'));
-        await tester.pumpAndSettle();
-        expect(find.text('Este archivo complementa a:'), findsOneWidget);
-        await tester.tap(find.text('historico_oct.xlsx').last);
-        await tester.tap(find.text('Elegir archivo'));
-        await tester.pumpAndSettle();
-
-        final post = backend.requests.lastWhere((r) => r.method == 'POST');
-        expect(post.body, contains('name="base_dataset_id"'));
-        expect(find.text('Esperando tu confirmación'), findsOneWidget);
-      },
-    );
-
-    testWidgets('backing out of the chooser uploads nothing', (tester) async {
-      final backend = await _pump(
-        tester,
-        DatasetsScreen(pick: () => _picks('nuevo.xlsx')),
-      );
-
-      await tester.tap(find.text('Subir Excel'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Cancelar'));
       await tester.pumpAndSettle();
 
       expect(backend.requests.where((r) => r.method == 'POST'), isEmpty);
@@ -267,7 +226,6 @@ void main() {
       );
       await tester.tap(find.text('Subir Excel'));
       await tester.pumpAndSettle();
-      expect(find.text('Este archivo complementa a:'), findsNothing);
       expect(backend.requests.where((r) => r.method == 'POST'), isEmpty);
     });
 
