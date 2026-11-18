@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'app_router.dart';
 import 'core/network/api_client.dart';
+import 'core/push/device_registry.dart';
 import 'core/storage/token_storage.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/data/auth_repository.dart';
@@ -42,7 +43,7 @@ class _VoltCastAppState extends State<VoltCastApp> {
     _datasets = DatasetsRepository(_api);
     _forecasting = ForecastingRepository(_api);
     _drive = DriveRepository(_api);
-    _auth = AuthController(_repository);
+    _auth = AuthController(_repository, devices: DeviceRegistry(_api));
     _api.onSessionExpired = _auth.handleSessionExpired;
     _auth.restoreSession();
   }

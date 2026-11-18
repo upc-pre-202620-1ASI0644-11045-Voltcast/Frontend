@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/network/api_exception.dart';
+import '../../../core/push/device_registry.dart';
 import '../data/auth_repository.dart';
 import '../data/auth_user.dart';
 
@@ -13,9 +14,13 @@ class AuthController extends ChangeNotifier {
   AuthController(
     this._repository, {
     this.restoreRetryEvery = const Duration(seconds: 15),
+    this.devices,
   });
 
   final AuthRepository _repository;
+
+  /// Push registration; null when push is not wired (tests).
+  final DeviceRegistry? devices;
 
   /// How often a stored session is tried again after opening without a
   /// connection. What was queued offline goes out once it is back.
@@ -39,6 +44,7 @@ class AuthController extends ChangeNotifier {
       // Signed in by hand while this attempt was on its way.
       if (_status != AuthStatus.authenticated) {
         _set(AuthStatus.authenticated, user);
+        unawaited(devices?.register());
       }
     } on ApiException catch (e) {
       if (_status == AuthStatus.authenticated) return;
@@ -66,10 +72,12 @@ class AuthController extends ChangeNotifier {
     final user = await _repository.login(email: email, password: password);
     _cancelRestoreRetry();
     _set(AuthStatus.authenticated, user);
+    unawaited(devices?.register());
   }
 
   Future<void> logout() async {
     _cancelRestoreRetry();
+    await devices?.unregister();
     await _repository.logout();
     _set(AuthStatus.unauthenticated);
   }

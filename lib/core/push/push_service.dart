@@ -12,17 +12,21 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 // sends via FCM v1 with a classic registration token; migrate if the backend moves to FIDs.
 // ignore_for_file: deprecated_member_use
 class PushService {
-  /// Current FCM token; null until permission is granted and Firebase is ready.
-  static Future<String?> init() async {
+  static Future<void> init() async {
     // shortcut: Android only (google-services.json); run `flutterfire configure` to add iOS/web.
     await Firebase.initializeApp();
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
-    final messaging = FirebaseMessaging.instance;
-    // Android 13+ asks for POST_NOTIFICATIONS here.
-    await messaging.requestPermission();
     FirebaseMessaging.onMessage.listen((m) {
       debugPrint('FCM foreground: ${m.notification?.title} ${m.data}');
     });
+  }
+
+  /// Asks for notification permission (Android 13+ / iOS) and returns the FCM
+  /// token, or null when the user denied it.
+  static Future<String?> token() async {
+    final messaging = FirebaseMessaging.instance;
+    final settings = await messaging.requestPermission();
+    if (settings.authorizationStatus == AuthorizationStatus.denied) return null;
     final token = await messaging.getToken();
     debugPrint('FCM token: $token');
     return token;
