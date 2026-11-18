@@ -157,6 +157,13 @@ void main() {
           contains('20 segundos'));
     });
 
+    test('a 422 about the serial length is explained in Spanish', () {
+      expect(
+        translateBackendMessage('String should have at most 10 characters'),
+        'El código serial admite máximo 10 caracteres.',
+      );
+    });
+
     test('unknown messages pass through', () {
       expect(translateBackendMessage('Algo raro'), 'Algo raro');
     });

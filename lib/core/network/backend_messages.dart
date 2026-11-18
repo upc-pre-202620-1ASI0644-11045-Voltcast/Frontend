@@ -60,6 +60,7 @@ const _exact = {
       'El voltaje máximo debe ser mayor que cero.',
 };
 
+final _tooLong = RegExp(r'^String should have at most (\d+) characters?$');
 final _cellExists = RegExp(r"^Cell '.*' already exists$");
 final _serialExists = RegExp(
   r"^Component with serial code '.*' already exists$",
@@ -133,6 +134,8 @@ String translateBackendMessage(String message) {
   if (_alreadyRegistered.hasMatch(message)) {
     return 'Este correo ya está registrado o tiene una solicitud en curso.';
   }
+  final long = _tooLong.firstMatch(message);
+  if (long != null) return 'El código serial admite máximo ${long[1]} caracteres.';
   if (_cellExists.hasMatch(message)) {
     return 'Ya existe una celda con ese nombre.';
   }

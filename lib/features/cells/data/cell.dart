@@ -12,7 +12,8 @@ class Cell {
   final String name;
   final bool isActive;
 
-  /// `CELL-00001` once generated; null while pending.
+  /// `A1|CAT-000023|ANO-000024` (name|cathode|anode) once generated; null while
+  /// pending or when the cell is inactive. The server recomputes it: never cache it.
   final String? barcodeValue;
 
   bool get hasBarcode => barcodeValue != null;

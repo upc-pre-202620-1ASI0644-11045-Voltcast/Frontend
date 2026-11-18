@@ -193,7 +193,9 @@ class ApiClient {
     if (detail is List && detail.isNotEmpty) {
       final first = detail.first;
       if (first is Map && first['msg'] is String) {
-        return 'Datos inválidos: ${first['msg']}';
+        final msg = first['msg'] as String;
+        final translated = translateBackendMessage(msg);
+        return translated == msg ? 'Datos inválidos: $msg' : translated;
       }
     }
     return status >= 500

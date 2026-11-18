@@ -1483,14 +1483,7 @@ class _ComponentPanel extends StatelessWidget {
           else if (cell case final cell?) ...[
             pair(info('ID', '#${c.id}'), info('Celda', cell.name)),
             const SizedBox(height: 10),
-            pair(
-              info('Estado', state!),
-              info(
-                'Código',
-                cell.barcodeValue ?? 'Pendiente',
-                color: cell.hasBarcode ? AppColors.ink : AppColors.amber,
-              ),
-            ),
+            pair(info('Estado', state!), info('Código', c.serialCode)),
           ] else
             pair(info('ID', '#${c.id}'), info('Celda', 'Sin asignar')),
           if (actions.isNotEmpty) ...[

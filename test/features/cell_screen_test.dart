@@ -210,10 +210,10 @@ void main() {
       await _tapKey(tester, 'line-anode-1');
 
       expect(_inView, findsOneWidget);
-      expect(_inPanel('ANO-001'), findsOneWidget);
+      expect(_inPanel('ANO-001'), findsNWidgets(2)); // title + its own code
       expect(_inPanel('#2'), findsOneWidget);
       expect(_inPanel('En uso'), findsNWidgets(2)); // pill + state
-      expect(_inPanel('CELL-00001'), findsOneWidget);
+      expect(_inPanel('A1|CAT-001|ANO-001'), findsNothing); // not the cell's code
       expect(find.textContaining('Actualizado a las'), findsNothing);
       expect(
         backend.requests.length,
@@ -222,7 +222,7 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('focus-cathode')));
       await tester.pumpAndSettle();
-      expect(_inPanel('CAT-001'), findsOneWidget);
+      expect(_inPanel('CAT-001'), findsNWidgets(2));
 
       await tester.tap(find.byTooltip('Volver a la línea'));
       await tester.pumpAndSettle();
@@ -290,7 +290,7 @@ void main() {
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('line-code-1')),
-        matching: find.byTooltip('Código CELL-00001'),
+        matching: find.byTooltip('Código A1|CAT-001|ANO-001'),
       ),
       findsOneWidget,
     );
@@ -329,7 +329,7 @@ void main() {
 
     await tester.tap(find.text('Ver componentes').first);
     await tester.pumpAndSettle();
-    expect(_inPanel('ANO-001'), findsOneWidget);
+    expect(_inPanel('ANO-001'), findsNWidgets(2));
   });
 
   testWidgets(
@@ -423,7 +423,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(backend.component(5)['cell_id'], 3);
-      expect(_inPanel('CAT-099'), findsOneWidget);
+      expect(_inPanel('CAT-099'), findsNWidgets(2));
     });
   });
 }
