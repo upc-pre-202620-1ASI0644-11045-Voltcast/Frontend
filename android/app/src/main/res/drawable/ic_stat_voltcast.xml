@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Status-bar silhouette of assets/icon/icon.svg: Android tints it, so it must be white on transparent. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="240"
+    android:viewportHeight="240">
+    <path
+        android:pathData="M150,34 L76,130 L126,130 L94,208 L170,106 L118,106 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="14"
+        android:strokeLineJoin="round" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M136,34 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0 M62,130 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0 M112,130 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0 M156,106 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0 M104,106 a14,14 0 1,0 28,0 a14,14 0 1,0 -28,0 M78,208 a16,16 0 1,0 32,0 a16,16 0 1,0 -32,0" />
+</vector>

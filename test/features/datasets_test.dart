@@ -167,8 +167,6 @@ void main() {
 
       await tester.tap(find.text('Subir Excel'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Elegir archivo'));
-      await tester.pumpAndSettle();
 
       expect(find.text('nuevo.xlsx'), findsOneWidget);
       expect(find.text('En cola'), findsOneWidget);
@@ -185,8 +183,6 @@ void main() {
       );
 
       await tester.tap(find.text('Subir Excel'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Elegir archivo'));
       await tester.pumpAndSettle();
 
       expect(
@@ -206,43 +202,6 @@ void main() {
       );
 
       await tester.tap(find.text('Subir Excel'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Elegir archivo'));
-      await tester.pumpAndSettle();
-
-      expect(backend.requests.where((r) => r.method == 'POST'), isEmpty);
-    });
-
-    testWidgets(
-      'a file can complement a ready one and waits for confirmation',
-      (tester) async {
-        final backend = await _pump(
-          tester,
-          DatasetsScreen(pick: () => _picks('nuevo.xlsx')),
-        );
-
-        await tester.tap(find.text('Subir Excel'));
-        await tester.pumpAndSettle();
-        expect(find.text('Este archivo complementa a:'), findsOneWidget);
-        await tester.tap(find.text('historico_oct.xlsx').last);
-        await tester.tap(find.text('Elegir archivo'));
-        await tester.pumpAndSettle();
-
-        final post = backend.requests.lastWhere((r) => r.method == 'POST');
-        expect(post.body, contains('name="base_dataset_id"'));
-        expect(find.text('Esperando tu confirmación'), findsOneWidget);
-      },
-    );
-
-    testWidgets('backing out of the chooser uploads nothing', (tester) async {
-      final backend = await _pump(
-        tester,
-        DatasetsScreen(pick: () => _picks('nuevo.xlsx')),
-      );
-
-      await tester.tap(find.text('Subir Excel'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Cancelar'));
       await tester.pumpAndSettle();
 
       expect(backend.requests.where((r) => r.method == 'POST'), isEmpty);
@@ -267,7 +226,6 @@ void main() {
       );
       await tester.tap(find.text('Subir Excel'));
       await tester.pumpAndSettle();
-      expect(find.text('Este archivo complementa a:'), findsNothing);
       expect(backend.requests.where((r) => r.method == 'POST'), isEmpty);
     });
 
@@ -309,10 +267,19 @@ void main() {
 
       expect(s.hasCleaning, isTrue);
       expect(
-        [s.rowsRead, s.rowsSorted, s.duplicatesRemoved, s.discardedRows, s.discardedColumns],
+        [
+          s.rowsRead,
+          s.rowsSorted,
+          s.duplicatesRemoved,
+          s.discardedRows,
+          s.discardedColumns,
+        ],
         [27, 24, 2, 1, 2],
       );
-      expect(s.rowsRead, s.rowsSorted! + s.duplicatesRemoved! + s.discardedRows!);
+      expect(
+        s.rowsRead,
+        s.rowsSorted! + s.duplicatesRemoved! + s.discardedRows!,
+      );
     });
 
     test('a file processed before the counts existed has none, not zeros', () {
@@ -338,41 +305,19 @@ void main() {
   });
 
   group('DatasetDetailScreen', () {
-    testWidgets('a ready file shows its summary and trains the model', (
+    testWidgets('a ready file shows its summary, with no training button', (
       tester,
     ) async {
-      final backend = await _pump(tester, const DatasetDetailScreen(id: 2));
+      await _pump(tester, const DatasetDetailScreen(id: 2));
 
       expect(find.text('A · 150 / B · 150'), findsOneWidget);
       expect(find.text('300'), findsOneWidget);
-      expect(find.text('Celdas nuevas'), findsOneWidget);
-      expect(find.textContaining('01 ene 2024'), findsOneWidget);
-
-      await tester.tap(find.text('Reintentar entrenamiento'));
-      await tester.pumpAndSettle();
-
-      final post = backend.requests.lastWhere((r) => r.method == 'POST');
-      expect(post.url.path, '/api/v1/trainings');
-      expect(post.body, contains('"dataset_id":2'));
-      expect(find.text('Entrenamiento iniciado.'), findsOneWidget);
-    });
-
-    testWidgets('a training already in progress is explained in Spanish', (
-      tester,
-    ) async {
-      final backend = FakeForecastingBackend()
-        ..trainings.add(FakeForecastingBackend.training(1, 'running'));
-      await _pump(tester, const DatasetDetailScreen(id: 2), backend: backend);
-
-      await tester.tap(find.text('Reintentar entrenamiento'));
-      await tester.pumpAndSettle();
-
-      expect(
-        find.text(
-          'Ya hay un entrenamiento en curso. Espera a que termine para iniciar otro.',
-        ),
-        findsOneWidget,
-      );
+      expect(find.text('Celdas nuevas'), findsNothing);
+      expect(find.text('Días'), findsNothing);
+      // The period keeps its dates whole with non-breaking spaces.
+      expect(find.textContaining('01 ene 2024'), findsOneWidget);
+      // Training starts on its own when the file is ready.
+      expect(find.text('Reintentar entrenamiento'), findsNothing);
     });
 
     testWidgets('a ready file shows what the cleaning did, zeros included', (
@@ -385,7 +330,7 @@ void main() {
       expect(find.text('Registros ordenados'), findsOneWidget);
       expect(find.text('Duplicados eliminados'), findsOneWidget);
       expect(find.text('0'), findsOneWidget); // no duplicates, still shown
-      expect(find.text('Columnas descartadas'), findsOneWidget);
+      expect(find.text('Columnas descartadas'), findsNothing);
       expect(find.textContaining('no del conjunto unido'), findsNothing);
     });
 
@@ -395,7 +340,7 @@ void main() {
       final backend = FakeForecastingBackend()..oldSummary = true;
       await _pump(tester, const DatasetDetailScreen(id: 2), backend: backend);
 
-      expect(find.text('Celdas nuevas'), findsOneWidget);
+      expect(find.text('Celdas'), findsOneWidget);
       expect(find.text('Resumen de limpieza'), findsNothing);
     });
 
@@ -406,15 +351,7 @@ void main() {
       backend.datasets.firstWhere((d) => d['id'] == 2)['base_dataset_id'] = 1;
       await _pump(tester, const DatasetDetailScreen(id: 2), backend: backend);
 
-      expect(find.textContaining('solo del archivo que subiste'), findsOneWidget);
-    });
-
-    testWidgets('a ready file says the training starts by itself', (
-      tester,
-    ) async {
-      await _pump(tester, const DatasetDetailScreen(id: 2));
-
-      expect(find.textContaining('arranca solo'), findsOneWidget);
+      expect(find.textContaining('solo del archivo subido'), findsOneWidget);
     });
 
     testWidgets(

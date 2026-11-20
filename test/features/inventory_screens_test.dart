@@ -209,7 +209,7 @@ void main() {
         find.text('—'),
         findsNWidgets(4),
       ); // B3 has neither; C4 is disabled
-      expect(find.byTooltip('Código CELL-00001'), findsOneWidget);
+      expect(find.byTooltip('Código A1|CAT-001|ANO-001'), findsOneWidget);
       expect(find.byTooltip('Generar código de barras'), findsNWidgets(2));
       expect(find.text('Activa'), findsOneWidget);
       expect(find.text('Inactiva'), findsNWidgets(2));
@@ -867,6 +867,19 @@ void main() {
       },
     );
 
+    testWidgets('the serial code cannot be typed past 10 characters with its prefix', (
+      tester,
+    ) async {
+      await _pump(tester);
+      await _openStorage(tester);
+
+      await _tapText(tester, 'Nuevo');
+      await tester.enterText(find.byType(TextFormField), '1' * 21);
+      await tester.pump();
+
+      expect(find.text('1' * 8), findsOneWidget); // "C-" + 8 digits = 10
+    });
+
     testWidgets('a disabled component is reactivated: it is free again', (
       tester,
     ) async {
@@ -991,7 +1004,7 @@ void main() {
         expect(h.backend.component(3)['cell_id'], 1);
         expect(find.textContaining('pendiente de sincronizar'), findsNothing);
         expect(
-          find.text('Se sincronizaron 1 intercambio con el servidor.'),
+          find.text('Se sincronizó 1 intercambio con el servidor.'),
           findsOneWidget,
         );
 
@@ -999,7 +1012,7 @@ void main() {
           find.byTooltip('Cerrar'),
         ); // the notice can be dismissed
         await tester.pumpAndSettle();
-        expect(find.textContaining('Se sincronizaron'), findsNothing);
+        expect(find.textContaining('Se sincroniz'), findsNothing);
       },
     );
   });
@@ -1011,7 +1024,7 @@ void main() {
       final h = await _pump(tester, location: '/barcodes?cell=1');
 
       expect(find.byType(BarcodeWidget), findsOneWidget);
-      expect(find.text('CELL-00001'), findsOneWidget);
+      expect(find.text('A1|CAT-001|ANO-001'), findsOneWidget);
       expect(find.text('Disponible'), findsOneWidget);
       expect(find.text('CAT-001'), findsOneWidget);
       expect(find.text('ANO-001'), findsOneWidget);
@@ -1020,10 +1033,45 @@ void main() {
       expect(h.downloads, ['codigo-celda-A1.png']);
     });
 
+    test('Code 128 can draw the cell code with its | separators', () {
+      expect(Barcode.code128().isValid('A1|CAT-000023|ANO-000024'), isTrue);
+    });
+
+    testWidgets('a component shows its own barcode, made from its serial code', (
+      tester,
+    ) async {
+      await _pump(tester, location: '/barcodes?cell=1');
+
+      await _tapText(tester, 'CAT-001');
+
+      expect(find.byType(BarcodeWidget), findsNWidgets(2));
+      expect(find.text('VOLTCAST · CÁTODO'), findsOneWidget);
+      expect(
+        tester
+            .widgetList<BarcodeWidget>(find.byType(BarcodeWidget))
+            .map((b) => String.fromCharCodes(b.data)),
+        contains('CAT-001'),
+      );
+    });
+
+    testWidgets('renaming the cell recomputes its code', (tester) async {
+      final h = await _pump(tester, location: '/barcodes?cell=1');
+      expect(find.text('A1|CAT-001|ANO-001'), findsOneWidget);
+
+      h.backend.cell(1)['name'] = 'A9';
+      // Not awaited: it only completes while the test pumps.
+      tester
+          .state<RefreshIndicatorState>(find.byType(RefreshIndicator))
+          .show();
+      await tester.pumpAndSettle();
+
+      expect(find.text('A9|CAT-001|ANO-001'), findsOneWidget);
+    });
+
     testWidgets('a pending cell with both components can generate its code', (
       tester,
     ) async {
-      final h = await _pump(tester, location: '/barcodes?cell=2');
+      await _pump(tester, location: '/barcodes?cell=2');
 
       expect(find.byType(BarcodeWidget), findsNothing);
       expect(find.text('Pendiente'), findsOneWidget);
@@ -1034,7 +1082,7 @@ void main() {
 
       await _tapText(tester, 'Generar código');
 
-      expect(h.backend.cell(2)['barcode_value'], 'CELL-00002');
+      expect(find.text('A2|CAT-014|ANO-014'), findsOneWidget);
       expect(find.byType(BarcodeWidget), findsOneWidget);
       expect(find.text('Descargar PNG'), findsOneWidget);
       expect(find.text('Código generado para la celda A2.'), findsOneWidget);
@@ -1155,7 +1203,7 @@ void main() {
                 padding: const EdgeInsets.all(20),
                 child: BarcodeWidget(
                   barcode: Barcode.code128(),
-                  data: 'CELL-00001',
+                  data: 'A1|CAT-000023|ANO-000024',
                   width: 260,
                   height: 96,
                 ),

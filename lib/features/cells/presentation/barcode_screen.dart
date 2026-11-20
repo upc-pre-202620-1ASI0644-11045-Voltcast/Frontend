@@ -56,6 +56,17 @@ class _BarcodeScreenState extends State<BarcodeScreen> {
     await runAction(context, () => inventory.generateBarcode(cell), 'Código generado para la celda ${cell.name}.');
   }
 
+  /// A component's code is its own serial code.
+  void _showComponentCode(String label, String serial) => showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          contentPadding: EdgeInsets.zero,
+          insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+          content: _BarcodeImage(value: serial, caption: 'VOLTCAST · ${label.toUpperCase()}'),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cerrar'))],
+        ),
+      );
+
   /// US017: downloading before generating tells the user to generate it first (E02).
   Future<void> _download(Cell cell) async {
     final messenger = ScaffoldMessenger.of(context);
@@ -181,7 +192,7 @@ class _BarcodeScreenState extends State<BarcodeScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 28, horizontal: 20),
                   child: cell.hasBarcode
-                      ? Center(child: _BarcodeImage(boundaryKey: _barcodeKey, value: cell.barcodeValue!, cellName: cell.name))
+                      ? Center(child: _BarcodeImage(boundaryKey: _barcodeKey, value: cell.barcodeValue!, caption: 'VOLTCAST · CELDA ${cell.name}'))
                       : _PendingNotice(hasPair: inventory.hasCompletePair(cell)),
                 ),
                 const Divider(height: 1, color: Color(0xFFF0F1F4)),
@@ -189,9 +200,21 @@ class _BarcodeScreenState extends State<BarcodeScreen> {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Expanded(child: _PairCell(label: 'Cátodo', serial: cathode)),
+                      Expanded(
+                        child: _PairCell(
+                          label: 'Cátodo',
+                          serial: cathode,
+                          onTap: cathode == null ? null : () => _showComponentCode('Cátodo', cathode),
+                        ),
+                      ),
                       const VerticalDivider(width: 1, color: Color(0xFFF0F1F4)),
-                      Expanded(child: _PairCell(label: 'Ánodo', serial: anode)),
+                      Expanded(
+                        child: _PairCell(
+                          label: 'Ánodo',
+                          serial: anode,
+                          onTap: anode == null ? null : () => _showComponentCode('Ánodo', anode),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -224,11 +247,11 @@ class _BarcodeScreenState extends State<BarcodeScreen> {
 /// The Code 128 barcode plus its printed value, on a white background so the
 /// exported PNG is ready to print.
 class _BarcodeImage extends StatelessWidget {
-  const _BarcodeImage({required this.boundaryKey, required this.value, required this.cellName});
+  const _BarcodeImage({this.boundaryKey, required this.value, required this.caption});
 
-  final GlobalKey boundaryKey;
+  final Key? boundaryKey;
   final String value;
-  final String cellName;
+  final String caption;
 
   @override
   Widget build(BuildContext context) {
@@ -255,7 +278,7 @@ class _BarcodeImage extends StatelessWidget {
               style: const TextStyle(fontSize: 14, letterSpacing: 1.2, color: Color(0xFF111827)),
             ),
             const SizedBox(height: 2),
-            Text('VOLTCAST · CELDA $cellName', style: const TextStyle(fontSize: 12, color: AppColors.muted)),
+            Text(caption, style: const TextStyle(fontSize: 12, color: AppColors.muted)),
           ],
         ),
       ),
@@ -292,19 +315,32 @@ class _PendingNotice extends StatelessWidget {
 }
 
 class _PairCell extends StatelessWidget {
-  const _PairCell({required this.label, required this.serial});
+  const _PairCell({required this.label, required this.serial, this.onTap});
 
   final String label;
   final String? serial;
 
+  /// Shows the component's own barcode.
+  final VoidCallback? onTap;
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
       padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
+          Row(
+            children: [
+              Text(label, style: const TextStyle(fontSize: 13, color: AppColors.muted)),
+              if (onTap != null) ...[
+                const SizedBox(width: 6),
+                const Icon(Icons.qr_code_2, size: 16, color: AppColors.muted),
+              ],
+            ],
+          ),
           const SizedBox(height: 6),
           Text(
             serial ?? 'Sin asignar',
@@ -318,6 +354,7 @@ class _PairCell extends StatelessWidget {
           ),
         ],
       ),
+    ),
     );
   }
 }

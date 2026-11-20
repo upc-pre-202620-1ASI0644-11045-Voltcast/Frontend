@@ -1095,40 +1095,18 @@ class _ComponentDetail extends StatelessWidget {
                     ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(20, 8, 20, 8),
-                      child: Column(
-                        children: [
-                          Expanded(
-                            child: component == null
-                                ? Center(
-                                    child: AspectRatio(
-                                      aspectRatio: 0.3,
-                                      child: const CustomPaint(painter: _EmptyBarPainter()),
-                                    ),
-                                  )
-                                : RotatableBar(
-                                    key: const ValueKey('detail-bar'),
-                                    type: focus,
-                                    serial: component.serialCode,
-                                  ),
-                          ),
-                          if (component != null)
-                            const Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.threesixty, size: 16, color: AppColors.muted),
-                                SizedBox(width: 6),
-                                Flexible(
-                                  child: Text(
-                                    'Desliza para girar',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(fontSize: 12, color: AppColors.muted),
-                                  ),
-                                ),
-                              ],
+                      child: component == null
+                          ? Center(
+                              child: AspectRatio(
+                                aspectRatio: 0.3,
+                                child: const CustomPaint(painter: _EmptyBarPainter()),
+                              ),
+                            )
+                          : RotatableBar(
+                              key: const ValueKey('detail-bar'),
+                              type: focus,
+                              serial: component.serialCode,
                             ),
-                        ],
-                      ),
                     ),
                   ],
                 ),
@@ -1448,12 +1426,15 @@ class _ComponentPanel extends StatelessWidget {
       ],
     );
 
+    // A floating card, not a sheet stuck to the edge: the side and bottom margins
+    // leave air between it and the navigation bar below.
     return Container(
-      padding: EdgeInsets.fromLTRB(20, 10, 20, 16 + MediaQuery.paddingOf(context).bottom),
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 14),
+      padding: const EdgeInsets.fromLTRB(20, 10, 20, 16),
       decoration: const BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-        boxShadow: [BoxShadow(color: Color(0x1A0F172A), blurRadius: 24, offset: Offset(0, -6))],
+        borderRadius: BorderRadius.all(Radius.circular(28)),
+        boxShadow: [BoxShadow(color: Color(0x1A0F172A), blurRadius: 24, offset: Offset(0, 6))],
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -1502,14 +1483,7 @@ class _ComponentPanel extends StatelessWidget {
           else if (cell case final cell?) ...[
             pair(info('ID', '#${c.id}'), info('Celda', cell.name)),
             const SizedBox(height: 10),
-            pair(
-              info('Estado', state!),
-              info(
-                'Código',
-                cell.barcodeValue ?? 'Pendiente',
-                color: cell.hasBarcode ? AppColors.ink : AppColors.amber,
-              ),
-            ),
+            pair(info('Estado', state!), info('Código', c.serialCode)),
           ] else
             pair(info('ID', '#${c.id}'), info('Celda', 'Sin asignar')),
           if (actions.isNotEmpty) ...[

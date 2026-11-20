@@ -4,7 +4,9 @@ import 'package:actualvoltcast/features/auth/data/auth_repository.dart';
 import 'package:actualvoltcast/features/auth/data/auth_user.dart';
 import 'package:actualvoltcast/features/auth/presentation/auth_controller.dart';
 import 'package:actualvoltcast/features/home/main_shell.dart';
+import 'package:actualvoltcast/features/users/data/pending_review.dart';
 import 'package:actualvoltcast/features/users/data/users_repository.dart';
+import 'package:actualvoltcast/features/users/presentation/users_controller.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
@@ -32,6 +34,7 @@ class _SignedIn extends AuthController {
 Future<FakeUsersBackend> _pump(
   WidgetTester tester, {
   required String? role,
+  PendingReviewStore? store,
 }) async {
   final backend = FakeUsersBackend();
   final api = ApiClient(
@@ -73,7 +76,13 @@ Future<FakeUsersBackend> _pump(
         ChangeNotifierProvider<AuthController>(
           create: (_) => _SignedIn(user, api),
         ),
-        Provider<UsersRepository>.value(value: UsersRepository(api)),
+        // Lazy, as in the app: only the supervisor's bar creates it.
+        ChangeNotifierProvider<UsersController>(
+          create: (_) => UsersController(
+            UsersRepository(api),
+            store: store ?? MemoryPendingReviewStore(),
+          )..load(),
+        ),
       ],
       child: MaterialApp.router(theme: AppTheme.light(), routerConfig: router),
     ),
@@ -148,6 +157,33 @@ void main() {
       await tester.tap(find.byTooltip('Inicio'));
       await tester.pumpAndSettle();
       expect(find.text('1'), findsWidgets);
+      expect(find.byTooltip('Usuarios: 1 solicitud pendiente'), findsOneWidget);
+    },
+  );
+
+  testWidgets('an engineer never asks the backend for the users', (
+    tester,
+  ) async {
+    final backend = await _pump(tester, role: 'USER');
+
+    await tester.tap(find.byTooltip('Inventario'));
+    await tester.pumpAndSettle();
+
+    expect(backend.requests, isEmpty);
+  });
+
+  testWidgets(
+    'the queue left by the last run goes out without opening Usuarios',
+    (tester) async {
+      final store = MemoryPendingReviewStore([
+        const PendingReview(userId: 4, approve: true, fullName: 'Mariana Torres'),
+      ]);
+
+      final backend = await _pump(tester, role: 'ADMIN', store: store);
+
+      expect(find.text('screen /line'), findsOneWidget);
+      expect(backend.users.firstWhere((u) => u['id'] == 4)['status'], 'active');
+      expect(store.reviews, isEmpty);
       expect(find.byTooltip('Usuarios: 1 solicitud pendiente'), findsOneWidget);
     },
   );

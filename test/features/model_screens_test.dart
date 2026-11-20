@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'package:actualvoltcast/core/network/api_client.dart';
 import 'package:actualvoltcast/core/format.dart';
 import 'package:actualvoltcast/core/theme/app_theme.dart';
-import 'package:actualvoltcast/core/widgets/app_buttons.dart';
 import 'package:actualvoltcast/features/auth/data/auth_repository.dart';
 import 'package:actualvoltcast/features/auth/data/auth_user.dart';
 import 'package:actualvoltcast/features/auth/presentation/auth_controller.dart';
@@ -156,7 +155,8 @@ void main() {
           find.textContaining('Error promedio de ese día:'),
           findsOneWidget,
         );
-        expect(find.text('Pronóstico'), findsNWidgets(4)); // one label per card
+        // One "Real · Pronóstico · Diferencia" line per card.
+        expect(find.textContaining('· Pronóstico '), findsNWidgets(4));
         // B12 (id 4) errs the most; its error is shown with a comma.
         expect(find.text('B12'), findsOneWidget);
         expect(find.byIcon(Icons.warning_amber_rounded), findsWidgets);
@@ -351,8 +351,7 @@ void main() {
     testWidgets('the cards fit 360 px even with a long cell name', (
       tester,
     ) async {
-      final backend = FakeForecastingBackend()
-        ..cells['A130-LARGO-123456'] = 9;
+      final backend = FakeForecastingBackend()..cells['A130-LARGO-123456'] = 9;
       tester.view.physicalSize = const Size(360, 2400);
       await _pump(tester, backend, const ModelScreen());
       // _pump sets 420 px; narrow it before the cards are built again.
@@ -433,7 +432,14 @@ void main() {
       );
 
       expect(
-        tester.widget<SecondaryButton>(find.byType(SecondaryButton)).onPressed,
+        tester
+            .widget<TextButton>(
+              find.ancestor(
+                of: find.text('Descargar todas las celdas (Excel)'),
+                matching: find.byWidgetPredicate((w) => w is TextButton),
+              ),
+            )
+            .onPressed,
         isNull,
       );
       expect(
@@ -571,29 +577,43 @@ void main() {
       final backend = FakeForecastingBackend();
       await _pump(tester, backend, const AlertRulesScreen());
 
-      await enterVoltage(tester, 0, '3,6');
+      await enterVoltage(tester, 0, '3,1');
       await tester.tap(find.text('Guardar límite'));
       await tester.pumpAndSettle();
 
       final post = backend.requests.lastWhere((r) => r.method == 'POST');
-      expect(jsonDecode(post.body), {'max_voltage': 3.6});
+      expect(jsonDecode(post.body), {'max_voltage': 3.1});
       expect(find.text('Límite general guardado.'), findsOneWidget);
-      expect(find.text('3.60 V'), findsOneWidget);
+      expect(find.text('3.10 V'), findsOneWidget);
     });
 
-    testWidgets('a value that is not above zero is refused before sending', (
+    testWidgets('a value outside 2.85 to 3.20 V is refused before sending', (
       tester,
     ) async {
       final backend = FakeForecastingBackend();
       await _pump(tester, backend, const AlertRulesScreen());
 
-      for (final bad in ['', '0']) {
+      // Includes the old backend range (3.35 to 3.45) and the untouched 4.50 V rule.
+      for (final bad in ['', '0', '2.84', '3.21', '3.4', '4.50']) {
         await enterVoltage(tester, 0, bad);
         await tester.tap(find.text('Guardar límite'));
         await tester.pumpAndSettle();
-        expect(find.text('Ingresa un voltaje mayor que cero.'), findsOneWidget);
+        expect(find.text('Ingresa un voltaje entre 2.85 y 3.20 V.'), findsOneWidget);
       }
       expect(backend.requests.where((r) => r.method == 'POST'), isEmpty);
+    });
+
+    testWidgets('both ends of the range are accepted', (tester) async {
+      final backend = FakeForecastingBackend();
+      await _pump(tester, backend, const AlertRulesScreen());
+
+      for (final ok in ['2.85', '3.20']) {
+        await enterVoltage(tester, 0, ok);
+        await tester.tap(find.text('Guardar límite'));
+        await tester.pumpAndSettle();
+      }
+      final posts = backend.requests.where((r) => r.method == 'POST');
+      expect(posts.map((r) => jsonDecode(r.body)['max_voltage']), [2.85, 3.2]);
     });
 
     testWidgets('there is only the general limit, none per cell', (
@@ -610,7 +630,7 @@ void main() {
       final backend = FakeForecastingBackend()..forbidden = true;
       await _pump(tester, backend, const AlertRulesScreen(), role: 'USER');
 
-      await enterVoltage(tester, 0, '3.5');
+      await enterVoltage(tester, 0, '3.1');
       await tester.tap(find.text('Guardar límite'));
       await tester.pumpAndSettle();
 

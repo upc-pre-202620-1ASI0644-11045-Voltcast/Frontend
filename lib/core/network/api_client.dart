@@ -52,6 +52,10 @@ class ApiClient {
   Future<dynamic> patch(String path, {Object? body, bool auth = false}) =>
       _send('PATCH', path, body: body, auth: auth);
 
+  /// A 204 answer has no body, so this returns null.
+  Future<dynamic> delete(String path, {bool auth = false}) =>
+      _send('DELETE', path, auth: auth);
+
   Future<dynamic> _send(
     String method,
     String path, {
@@ -121,11 +125,12 @@ class ApiClient {
         'El servidor no respondió. Revisa tu conexión e inténtalo de nuevo.',
       );
     } on http.ClientException {
-      throw const ApiException(
-        'No se pudo conectar con el servidor. Verifica que esté en ejecución.',
-      );
+      throw const ApiException(_unreachable);
     }
   }
+
+  static const _unreachable =
+      'No se pudo conectar con el servidor. Verifica que esté disponible.';
 
   /// Exchanges the refresh token for a new access token. Returns false (and
   /// signals session expiry) when the backend rejects it.
@@ -161,6 +166,12 @@ class ApiClient {
 
     if (response.statusCode >= 200 && response.statusCode < 300) return json;
 
+    // A proxy or tunnel in front of a stopped backend answers 403/502/503/504
+    // with an HTML page, while the API itself always answers JSON.
+    if (json is! Map && const {403, 502, 503, 504}.contains(response.statusCode)) {
+      throw const ApiException(_unreachable);
+    }
+
     throw ApiException(
       _messageFrom(json, response.statusCode),
       statusCode: response.statusCode,
@@ -189,7 +200,9 @@ class ApiClient {
     if (detail is List && detail.isNotEmpty) {
       final first = detail.first;
       if (first is Map && first['msg'] is String) {
-        return 'Datos inválidos: ${first['msg']}';
+        final msg = first['msg'] as String;
+        final translated = translateBackendMessage(msg);
+        return translated == msg ? 'Datos inválidos: $msg' : translated;
       }
     }
     return status >= 500

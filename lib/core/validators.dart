@@ -30,12 +30,15 @@ class Validators {
     return null;
   }
 
+  /// The backend caps the whole code ("C-" + digits) at 10 characters.
+  static const serialDigits = 8;
+
   /// The number part of a serial code: the app adds the "C-" / "A-" prefix.
   static String? serialNumber(String? value) {
     final v = value?.trim() ?? '';
     if (v.isEmpty) return 'Campo obligatorio: ingresa el código de serie.';
     if (!RegExp(r'^\d+$').hasMatch(v)) return 'Valor no válido: usa solo números.';
-    if (v.length > 20) return 'Valor no válido: máximo 20 dígitos.';
+    if (v.length > serialDigits) return 'Valor no válido: máximo $serialDigits dígitos.';
     return null;
   }
 

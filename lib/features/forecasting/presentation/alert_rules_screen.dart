@@ -59,11 +59,15 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> with SubmitState {
     }
   }
 
-  /// The typed voltage, or null (with the field's error set) when it is not above zero.
+  // The range the backend accepts for max_voltage (both ends included).
+  static const _minVolts = 2.85;
+  static const _maxVolts = 3.20;
+
+  /// The typed voltage, or null (with the field's error set) when it is outside the allowed range.
   double? _parse(TextEditingController field, void Function(String?) setError) {
     final value = double.tryParse(field.text.trim().replaceAll(',', '.'));
-    final ok = value != null && value > 0;
-    setState(() => setError(ok ? null : 'Ingresa un voltaje mayor que cero.'));
+    final ok = value != null && value >= _minVolts && value <= _maxVolts;
+    setState(() => setError(ok ? null : 'Ingresa un voltaje entre 2.85 y 3.20 V.'));
     return ok ? value : null;
   }
 
@@ -113,22 +117,6 @@ class _AlertRulesScreenState extends State<AlertRulesScreen> with SubmitState {
                           const SizedBox(height: 12),
                         ],
                         const SizedBox(height: 8),
-                        Center(
-                          child: Container(
-                            width: 64,
-                            height: 64,
-                            decoration: const BoxDecoration(
-                              color: Color(0xFFFFF1D6),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.bolt,
-                              size: 30,
-                              color: AppColors.amber,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
                         const Center(
                           child: Text(
                             'VOLTAJE MÁXIMO (V)',

@@ -337,7 +337,8 @@ class InventoryController extends ChangeNotifier {
     if (_pending.isEmpty) _stopRetry();
     if (synced > 0 || problems.isNotEmpty) {
       _syncNotice = [
-        if (synced > 0) 'Se sincronizaron $synced ${synced == 1 ? 'intercambio' : 'intercambios'} con el servidor.',
+        if (synced == 1) 'Se sincronizó 1 intercambio con el servidor.',
+        if (synced > 1) 'Se sincronizaron $synced intercambios con el servidor.',
         ...problems,
       ].join(' ');
     }

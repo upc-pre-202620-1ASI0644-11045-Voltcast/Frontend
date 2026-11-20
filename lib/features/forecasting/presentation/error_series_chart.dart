@@ -117,13 +117,13 @@ class _SeriesPainter extends CustomPainter {
       ..strokeWidth = 1;
     for (final f in [0.0, 0.5, 1.0]) {
       final y = _top + plotH * (1 - f);
-      canvas.drawLine(Offset(_padX, y), Offset(size.width - _padX, y), grid);
-      final label = _text(
-        decimal(lo + (hi - lo) * f, 1),
-        AppColors.muted,
-        size: 10,
-      );
-      label.paint(canvas, Offset(_padX, y - label.height - 1));
+      for (var x = _padX; x < size.width - _padX; x += 7) {
+        canvas.drawLine(
+          Offset(x, y),
+          Offset((x + 4).clamp(0, size.width - _padX), y),
+          grid,
+        );
+      }
     }
 
     final line = Path()..moveTo(at(0).dx, at(0).dy);
@@ -139,11 +139,6 @@ class _SeriesPainter extends CustomPainter {
         ..strokeJoin = StrokeJoin.round
         ..strokeCap = StrokeCap.round,
     );
-    if (points.length <= 31) {
-      for (var i = 0; i < points.length; i++) {
-        canvas.drawCircle(at(i), 2.2, Paint()..color = AppColors.blue);
-      }
-    }
 
     // First and last day.
     final first = _text(formatShortDate(points.first.date), AppColors.muted);

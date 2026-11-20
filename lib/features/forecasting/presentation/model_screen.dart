@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import '../../../core/format.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../../core/widgets/app_buttons.dart';
 import '../../../core/widgets/app_header.dart';
 import '../../../core/widgets/app_widgets.dart';
 import '../../../core/widgets/auth_visuals.dart';
@@ -171,23 +170,46 @@ class _ModelViewState extends State<_ModelView> {
       return const [SizedBox(height: 320, child: NoModelState())];
     }
     final m = c.metrics;
+    final r = c.availableRange;
     return [
-      const Align(
-        alignment: Alignment.centerLeft,
-        child: StatusPill(
-          'Modelo disponible',
-          background: Color(0xFFE8F8EE),
-          color: AppColors.success,
-        ),
+      Row(
+        children: [
+          const Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: StatusPill(
+                'Modelo disponible',
+                background: Color(0xFFE8F8EE),
+                color: AppColors.success,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          if (m?.mae != null) ...const [
+            Icon(
+              Icons.check_circle_outline,
+              size: 16,
+              color: AppColors.success,
+            ),
+            SizedBox(width: 4),
+            Text(
+              'Validado',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppColors.success,
+              ),
+            ),
+          ],
+        ],
       ),
       const SizedBox(height: 14),
-      _Summary(m),
+      _Summary(m, days: r == null ? null : r.to.difference(r.from).inDays + 1),
       const SizedBox(height: 24),
       const SectionTitle('Pronóstico frente a lo medido'),
-      const SizedBox(height: 8),
+      const SizedBox(height: 4),
       Text(
-        'Comparación de ${_span(c)}: lo que el modelo pronosticó frente a '
-        'lo que realmente se midió. Son días que el modelo no usó para entrenar.',
+        'Comparación de ${_span(c)}, días que el modelo no usó para entrenar.',
         style: const TextStyle(
           fontSize: 13,
           height: 1.4,
@@ -205,11 +227,12 @@ class _ModelViewState extends State<_ModelView> {
   }
 }
 
-/// "Error del pronóstico": the mean error in volts, big, with what it means.
+/// Two tiles: the mean error in volts and how many days it was validated on.
 class _Summary extends StatelessWidget {
-  const _Summary(this.metrics);
+  const _Summary(this.metrics, {required this.days});
 
   final ModelMetrics? metrics;
+  final int? days;
 
   @override
   Widget build(BuildContext context) {
@@ -224,45 +247,118 @@ class _Summary extends StatelessWidget {
         ),
       );
     }
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            child: _Tile(
+              icon: Icons.trending_down,
+              label: 'Error del pronóstico',
+              value: Text.rich(
+                TextSpan(
+                  style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.blue,
+                  ),
+                  children: [
+                    TextSpan(text: decimal(m.mae!, 3)),
+                    const TextSpan(
+                      text: ' V',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          if (days != null) ...[
+            const SizedBox(width: 10),
+            Expanded(
+              child: _Tile(
+                icon: Icons.calendar_month_outlined,
+                label: 'Días de validación',
+                value: Text(
+                  '$days',
+                  style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.ink,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _Tile extends StatelessWidget {
+  const _Tile({required this.icon, required this.label, required this.value});
+
+  final IconData icon;
+  final String label;
+  final Widget value;
+
+  @override
+  Widget build(BuildContext context) {
     return AppCard(
+      padding: const EdgeInsets.all(14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Error del pronóstico',
-            style: TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-              color: AppColors.ink,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text.rich(
-            TextSpan(
-              style: const TextStyle(
-                fontSize: 48,
-                fontWeight: FontWeight.w800,
-                color: AppColors.blue,
-              ),
-              children: [
-                TextSpan(text: decimal(m.mae!, 3)),
-                const TextSpan(
-                  text: ' V',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.muted,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 4),
-          const Text(
-            'Diferencia promedio entre el voltaje real y el pronosticado',
-            style: TextStyle(fontSize: 14, height: 1.4, color: AppColors.muted),
+          Icon(icon, size: 20, color: AppColors.blue),
+          const SizedBox(height: 10),
+          FittedBox(fit: BoxFit.scaleDown, child: value),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, color: AppColors.muted),
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// White rounded button with a blue icon and label: the date and the Excel.
+class _PillButton extends StatelessWidget {
+  const _PillButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = onPressed == null ? AppColors.disabledFg : AppColors.blue;
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        borderRadius: BorderRadius.all(Radius.circular(24)),
+        boxShadow: AppCard.shadow,
+      ),
+      child: TextButton.icon(
+        onPressed: onPressed,
+        icon: Icon(icon, size: 18, color: color),
+        label: Text(label),
+        style: TextButton.styleFrom(
+          backgroundColor: Colors.white,
+          foregroundColor: AppColors.blue,
+          disabledForegroundColor: AppColors.disabledFg,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+          shape: const StadiumBorder(),
+          textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+        ),
       ),
     );
   }
@@ -297,7 +393,7 @@ class _SeriesView extends StatelessWidget {
           const Text(
             'Error medio por día',
             style: TextStyle(
-              fontSize: 15,
+              fontSize: 17,
               fontWeight: FontWeight.w800,
               color: AppColors.ink,
             ),
@@ -344,17 +440,15 @@ class _Comparison extends StatelessWidget {
         _SeriesView(controller: c),
         Align(
           alignment: Alignment.centerLeft,
-          child: OutlinedButton.icon(
+          child: _PillButton(
             onPressed: c.selectableRange == null ? null : onPickDate,
-            icon: const Icon(Icons.calendar_today_outlined, size: 18),
-            label: Text(
-              c.date == null
-                  ? 'Elegir fecha'
-                  : 'Fecha: ${formatShortDate(c.date!)}',
-            ),
+            icon: Icons.calendar_today_outlined,
+            label: c.date == null
+                ? 'Elegir fecha'
+                : 'Fecha: ${formatShortDate(c.date!)}',
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 18),
         if (c.evaluationError != null) ...[
           ErrorBanner(c.evaluationError!),
           const SizedBox(height: 10),
@@ -395,17 +489,17 @@ class _Comparison extends StatelessWidget {
           Text(
             'Mostrando ${e.items.length} de ${e.totalCells} celdas',
             style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
+              fontSize: 16,
+              fontWeight: FontWeight.w800,
               color: AppColors.ink,
             ),
           ),
           if (e.meanErrorPct != null)
             Text(
               'Error promedio de ese día: ${decimal(e.meanErrorPct!, 2)} %',
-              style: const TextStyle(fontSize: 14, color: AppColors.ink),
+              style: const TextStyle(fontSize: 14, color: AppColors.muted),
             ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           if (c.evaluating) const LinearProgressIndicator(minHeight: 3),
           // The previous cards stay (dimmed) while the next day loads.
           Opacity(
@@ -413,14 +507,22 @@ class _Comparison extends StatelessWidget {
             child: Column(
               children: [
                 for (final i in e.items)
-                  _CellCard(item: i, mean: e.meanErrorPct),
+                  _CellCard(
+                    item: i,
+                    mean: e.meanErrorPct,
+                    // Bars are relative to the worst cell shown.
+                    max: e.items
+                        .map((x) => x.errorPct)
+                        .reduce((a, b) => a > b ? a : b),
+                  ),
               ],
             ),
           ),
         ],
         if (onExport != null) ...[
           const SizedBox(height: 16),
-          SecondaryButton(
+          _PillButton(
+            icon: Icons.download_outlined,
             label: exporting
                 ? 'Preparando archivo…'
                 : 'Descargar todas las celdas (Excel)',
@@ -463,12 +565,14 @@ Severity severityOf(double errorPct, double? mean) {
   return Severity.normal;
 }
 
-/// One cell of the day: name and error up front, the three volts below.
+/// One cell of the day: name and error up front, a bar sized against the worst
+/// cell shown, and the three volts on one line.
 class _CellCard extends StatelessWidget {
-  const _CellCard({required this.item, required this.mean});
+  const _CellCard({required this.item, required this.mean, required this.max});
 
   final EvaluationItem item;
   final double? mean;
+  final double max;
 
   @override
   Widget build(BuildContext context) {
@@ -479,6 +583,9 @@ class _CellCard extends StatelessWidget {
       Severity.elevated => ', por encima del promedio',
       Severity.high => ', muy por encima del promedio',
     };
+    final barColor = severity == Severity.normal
+        ? AppColors.blue
+        : severity.bar;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Semantics(
@@ -487,108 +594,67 @@ class _CellCard extends StatelessWidget {
             'Real ${decimal(i.real, 3)} voltios, pronosticado ${decimal(i.predicted, 3)} voltios, '
             'diferencia ${decimal(i.errorV, 3)} voltios',
         excludeSemantics: true,
-        child: ClipRRect(
-          borderRadius: AppRadius.medium,
-          child: ColoredBox(
-            color: Colors.white,
-            child: IntrinsicHeight(
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: AppCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  SizedBox(width: 5, child: ColoredBox(color: severity.bar)),
                   Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  alignment: Alignment.centerLeft,
-                                  child: Text(
-                                    i.cellName,
-                                    style: const TextStyle(
-                                      fontSize: 17,
-                                      fontWeight: FontWeight.w800,
-                                      color: AppColors.ink,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              if (severity != Severity.normal) ...[
-                                Icon(
-                                  Icons.warning_amber_rounded,
-                                  size: 18,
-                                  color: severity.text,
-                                ),
-                                const SizedBox(width: 4),
-                              ],
-                              Text(
-                                '${decimal(i.errorPct, 2)} %',
-                                style: TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w800,
-                                  color: severity.text,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              _Stat('V. real', decimal(i.real, 3)),
-                              _Stat('Pronóstico', decimal(i.predicted, 3)),
-                              _Stat('Diferencia (V)', decimal(i.errorV, 3)),
-                            ],
-                          ),
-                        ],
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        i.cellName,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.ink,
+                        ),
                       ),
+                    ),
+                  ),
+                  if (severity != Severity.normal) ...[
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 18,
+                      color: severity.text,
+                    ),
+                    const SizedBox(width: 4),
+                  ],
+                  Text(
+                    '${decimal(i.errorPct, 2)} %',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: severity.text,
                     ),
                   ),
                 ],
               ),
-            ),
+              const SizedBox(height: 10),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: max <= 0 ? 0 : (i.errorPct / max).clamp(0.0, 1.0),
+                  minHeight: 8,
+                  color: barColor,
+                  backgroundColor: const Color(0xFFEEF1F6),
+                ),
+              ),
+              const SizedBox(height: 10),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Real ${decimal(i.real, 3)} · Pronóstico ${decimal(i.predicted, 3)} · '
+                  'Diferencia ${decimal(i.errorV, 3)} V',
+                  style: const TextStyle(fontSize: 12, color: AppColors.muted),
+                ),
+              ),
+            ],
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _Stat extends StatelessWidget {
-  const _Stat(this.label, this.value);
-
-  final String label, value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 12, color: AppColors.muted),
-            ),
-          ),
-          const SizedBox(height: 2),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: AppColors.ink,
-              ),
-            ),
-          ),
-        ],
       ),
     );
   }

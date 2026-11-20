@@ -2,10 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../core/network/api_exception.dart';
 import '../../core/theme/app_theme.dart';
 import '../auth/presentation/auth_controller.dart';
-import '../users/data/users_repository.dart';
+import '../users/presentation/users_controller.dart';
 
 /// Branch order of the bottom bar, as declared in the router.
 abstract final class MainTabs {
@@ -18,61 +17,41 @@ abstract final class MainTabs {
 /// Signed-in frame: a bottom bar with Inicio (the cell line), Pronósticos,
 /// Inventario and, for supervisors, Usuarios with the pending-requests count.
 /// Each tab keeps its own state while the others are shown.
-class MainShell extends StatefulWidget {
+class MainShell extends StatelessWidget {
   const MainShell({super.key, required this.shell});
 
   final StatefulNavigationShell shell;
 
-  @override
-  State<MainShell> createState() => _MainShellState();
-}
-
-class _MainShellState extends State<MainShell> {
-  int _pending = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPending();
-  }
-
-  Future<void> _loadPending() async {
-    if (context.read<AuthController>().user?.isAdmin != true) return;
-    try {
-      final pending = await context.read<UsersRepository>().list(
-        status: 'pending',
-      );
-      if (mounted) setState(() => _pending = pending.length);
-    } on ApiException {
-      // The badge is a convenience; the Usuarios tab reports real errors.
-    }
-  }
-
-  void _select(int branch) {
-    final leavingUsers = widget.shell.currentIndex == MainTabs.users;
+  void _select(BuildContext context, int branch) {
+    final leavingUsers = shell.currentIndex == MainTabs.users;
     // Tapping the current tab again goes back to its first screen.
-    widget.shell.goBranch(
-      branch,
-      initialLocation: branch == widget.shell.currentIndex,
-    );
-    // Requests may have been approved or rejected in the Usuarios tab.
-    if (leavingUsers || branch == MainTabs.users) _loadPending();
+    shell.goBranch(branch, initialLocation: branch == shell.currentIndex);
+    // Requests may have been approved or rejected from another device.
+    if (leavingUsers || branch == MainTabs.users) {
+      context.read<UsersController>().load();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final isAdmin = context.watch<AuthController>().user?.isAdmin ?? false;
+    // Reading it creates it, which loads the list and restores the queue of
+    // decisions; the backend only answers these requests to supervisors.
+    // A decision already queued no longer waits for the supervisor: not counted.
+    final pending = isAdmin
+        ? context.watch<UsersController>().awaitingDecision.length
+        : 0;
     final branches = [
       MainTabs.home,
       MainTabs.forecasts,
       MainTabs.inventory,
       if (isAdmin) MainTabs.users,
     ];
-    final selected = branches.indexOf(widget.shell.currentIndex);
+    final selected = branches.indexOf(shell.currentIndex);
 
-    final usersTooltip = _pending == 0
+    final usersTooltip = pending == 0
         ? 'Usuarios'
-        : 'Usuarios: $_pending ${_pending == 1 ? 'solicitud pendiente' : 'solicitudes pendientes'}';
+        : 'Usuarios: $pending ${pending == 1 ? 'solicitud pendiente' : 'solicitudes pendientes'}';
     final items = [
       (
         icon: _icon(Icons.home_outlined),
@@ -97,13 +76,13 @@ class _MainShellState extends State<MainShell> {
           icon: _icon(Icons.people_outline),
           label: 'Usuarios',
           tooltip: usersTooltip,
-          badge: _pending,
+          badge: pending,
         ),
     ];
 
     return Scaffold(
       backgroundColor: AppColors.surface,
-      body: widget.shell,
+      body: shell,
       // Floating navy bar: the current tab is a lime pill with its name.
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -135,7 +114,7 @@ class _MainShellState extends State<MainShell> {
                     tooltip: items[i].tooltip,
                     badge: items[i].badge,
                     selected: i == (selected < 0 ? 0 : selected),
-                    onTap: () => _select(branches[i]),
+                    onTap: () => _select(context, branches[i]),
                   ),
                 ),
             ],

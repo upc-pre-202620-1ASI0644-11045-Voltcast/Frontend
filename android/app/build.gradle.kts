@@ -7,14 +7,18 @@ plugins {
 
 dependencies {
     implementation(platform("com.google.firebase:firebase-bom:35.1.0"))
+    // Required by flutter_local_notifications.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }
 
 android {
     namespace = "pe.edu.upc.actualvoltcast"
-    compileSdk = flutter.compileSdkVersion
+    // flutter_local_notifications needs 37; Flutter's default is 36. Back to flutter.compileSdkVersion once it catches up.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }

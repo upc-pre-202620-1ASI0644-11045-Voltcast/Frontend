@@ -26,7 +26,13 @@ import 'features/auth/presentation/screens/login_screen.dart';
 import 'features/auth/presentation/screens/register_screen.dart';
 import 'features/auth/presentation/screens/reset_args.dart';
 import 'features/home/main_shell.dart';
+import 'features/integrations/data/drive_repository.dart';
+import 'features/integrations/presentation/drive_controller.dart';
+import 'features/integrations/presentation/drive_screen.dart';
 import 'features/home/settings_screen.dart';
+import 'features/users/data/pending_review.dart';
+import 'features/users/data/users_repository.dart';
+import 'features/users/presentation/users_controller.dart';
 import 'features/users/presentation/users_screen.dart';
 import 'splash_screen.dart';
 
@@ -76,6 +82,13 @@ GoRouter buildRouter(AuthController auth) {
             ChangeNotifierProvider(
               create: (context) =>
                   DatasetsController(context.read<DatasetsRepository>()),
+            ),
+            // Created on first read, which only the supervisor's bar does.
+            ChangeNotifierProvider(
+              create: (context) => UsersController(
+                context.read<UsersRepository>(),
+                store: PrefsPendingReviewStore(auth.user!.id),
+              )..load(),
             ),
           ],
           child: child,
@@ -158,6 +171,15 @@ GoRouter buildRouter(AuthController auth) {
                 DatasetDetailScreen(id: int.parse(state.pathParameters['id']!)),
           ),
           GoRoute(path: '/limit', builder: (_, _) => const AlertRulesScreen()),
+          // Both roles see the status; only the supervisor gets the buttons.
+          GoRoute(
+            path: '/drive',
+            builder: (context, _) => ChangeNotifierProvider(
+              create: (context) =>
+                  DriveController(context.read<DriveRepository>()),
+              child: DriveScreen(canManage: auth.user?.isAdmin == true),
+            ),
+          ),
           GoRoute(
             path: '/barcodes',
             builder: (_, state) => BarcodeScreen(

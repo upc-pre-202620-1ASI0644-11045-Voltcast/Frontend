@@ -15,6 +15,19 @@ class FakeUsersBackend {
   /// When set, every request fails with this status/detail.
   ({int status, String detail})? failWith;
 
+  /// When set, only the approve/reject requests fail with this status/detail.
+  ({int status, String detail})? failReviewWith;
+
+  /// Every request fails as it does in airplane mode.
+  bool offline = false;
+
+  /// The next approve/reject is applied, but its reply never arrives.
+  bool loseNextReviewReply = false;
+
+  /// The approve/reject requests that reached the server.
+  List<http.Request> get reviews =>
+      requests.where((r) => r.url.path.endsWith('/approval')).toList();
+
   final users = <Map<String, dynamic>>[
     _user(1, 'Carlos Mendoza', 'c.mendoza@voltcast.io', 'active', 'ADMIN'),
     _user(2, 'Ana Ríos', 'a.rios@voltcast.io', 'active', 'USER'),
@@ -40,6 +53,7 @@ class FakeUsersBackend {
       );
 
   Future<http.Response> _handle(http.Request request) async {
+    if (offline) throw http.ClientException('no network');
     requests.add(request);
     final fail = failWith;
     if (fail != null) return _json(fail.status, {'detail': fail.detail});
@@ -57,8 +71,19 @@ class FakeUsersBackend {
 
     switch (match.group(2)) {
       case 'approval':
-        user['status'] = body['decision'] == 'approve' ? 'active' : 'rejected';
-        user['role'] = body['decision'] == 'approve' ? body['role'] : null;
+        final refusal = failReviewWith;
+        if (refusal != null) return _json(refusal.status, {'detail': refusal.detail});
+        final approve = body['decision'] == 'approve';
+        // The backend only reviews pending requests, so it can't email twice.
+        if (user['status'] != 'pending') {
+          return _json(400, {'detail': 'Only pending requests can be ${approve ? 'approved' : 'rejected'}'});
+        }
+        user['status'] = approve ? 'active' : 'rejected';
+        user['role'] = approve ? body['role'] : null;
+        if (loseNextReviewReply) {
+          loseNextReviewReply = false;
+          throw http.ClientException('connection lost');
+        }
       case 'status':
         user['status'] = body['status'];
       default:

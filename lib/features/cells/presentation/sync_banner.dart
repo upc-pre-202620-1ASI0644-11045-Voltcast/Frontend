@@ -19,8 +19,8 @@ class SyncStatusBanner extends StatelessWidget {
     if (pending > 0) {
       banner = NoticeBanner(
         text: pending == 1
-            ? '1 intercambio pendiente de sincronizar. Se enviará al servidor cuando se recupere la conexión a internet.'
-            : '$pending intercambios pendientes de sincronizar. Se enviarán al servidor cuando se recupere la conexión a internet.',
+            ? '1 intercambio pendiente de sincronizar.'
+            : '$pending intercambios pendientes de sincronizar.',
         actionLabel: inventory.syncing ? 'Sincronizando…' : 'Reintentar ahora',
         onAction: inventory.syncing ? null : inventory.syncPending,
       );

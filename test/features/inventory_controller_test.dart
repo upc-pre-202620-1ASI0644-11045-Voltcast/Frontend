@@ -79,7 +79,8 @@ void main() {
       expect(Validators.serialNumber('001'), isNull);
       expect(Validators.serialNumber('  '), isNotNull);
       expect(Validators.serialNumber('C-001'), isNotNull);
-      expect(Validators.serialNumber('1' * 21), isNotNull);
+      expect(Validators.serialNumber('1' * 8), isNull);
+      expect(Validators.serialNumber('1' * 9), isNotNull);
     });
   });
 
@@ -233,7 +234,7 @@ void main() {
       final (c, _) = await _loaded();
 
       await c.generateBarcode(c.cellById(2)!);
-      expect(c.cellById(2)!.barcodeValue, 'CELL-00002');
+      expect(c.cellById(2)!.barcodeValue, 'A2|CAT-014|ANO-014');
 
       await expectLater(
         c.generateBarcode(c.cellById(3)!),
@@ -245,7 +246,7 @@ void main() {
     test('generateBarcode keeps an existing value', () async {
       final (c, _) = await _loaded();
       await c.generateBarcode(c.cellById(1)!);
-      expect(c.cellById(1)!.barcodeValue, 'CELL-00001');
+      expect(c.cellById(1)!.barcodeValue, 'A1|CAT-001|ANO-001');
     });
 
     test('createComponent with and without a cell; duplicate serial', () async {
@@ -454,7 +455,7 @@ void main() {
       expect(backend.component(1)['cell_id'], 2);
       expect(backend.component(3)['cell_id'], 1);
       expect(backend.swapRequests, 1);
-      expect(c.syncNotice, 'Se sincronizaron 1 intercambio con el servidor.');
+      expect(c.syncNotice, 'Se sincronizó 1 intercambio con el servidor.');
       expect(await store.read(), isEmpty);
       expect(c.cathodeOf(c.cellById(1)!)?.serialCode, 'CAT-014'); // not reverted by the refresh
     });

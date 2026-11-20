@@ -206,7 +206,7 @@ class _ComponentSheetState extends State<_ComponentSheet> with SubmitState {
             hint: '001',
             prefixText: '${_type.letter}-',
             keyboardType: TextInputType.number,
-            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(Validators.serialDigits)],
             controller: _serial,
             textInputAction: TextInputAction.done,
             validator: Validators.serialNumber,

@@ -33,7 +33,7 @@ class FakeInventoryBackend {
 
   /// A1 and A2 have a cathode and an anode (active); B3 and C4 have none (inactive).
   final cells = <Map<String, dynamic>>[
-    _cell(1, 'A1', 'CELL-00001'),
+    _cell(1, 'A1', 'generated'), // the code itself is computed in cellJson
     _cell(2, 'A2', null),
     _cell(3, 'B3', null),
     _cell(4, 'C4', null),
@@ -71,7 +71,18 @@ class FakeInventoryBackend {
   /// As the API answers it: status derived from the components, no visibility flag.
   Map<String, dynamic> cellJson(int id) {
     final types = _assigned(id).map((c) => c['type']).toSet();
-    return {...cell(id), 'is_active': types.contains('CATHODE') && types.contains('ANODE')}..remove('is_visible');
+    final active = types.contains('CATHODE') && types.contains('ANODE');
+    return {
+      ...cell(id),
+      'is_active': active,
+      // Like the server: name|cathode|anode, recomputed on every change, null when inactive.
+      'barcode_value': active && cell(id)['barcode_value'] != null ? _code(id) : null,
+    }..remove('is_visible');
+  }
+
+  String _code(int id) {
+    String serial(String type) => _assigned(id).firstWhere((c) => c['type'] == type)['serial_code'] as String;
+    return '${cell(id)['name']}|${serial('CATHODE')}|${serial('ANODE')}';
   }
 
   Map<String, dynamic> _componentJson(Map<String, dynamic> c) => {...c}..remove('is_visible');
@@ -132,6 +143,7 @@ class FakeInventoryBackend {
           for (final c in _assigned(id)) {
             c['cell_id'] = null;
           }
+          target['barcode_value'] = null;
         case 'hide':
           if (_assigned(id).isNotEmpty) {
             return _bad('Cell has assigned cathodes/anodes; release them before removing it');
@@ -142,7 +154,7 @@ class FakeInventoryBackend {
           if (!(types.contains('CATHODE') && types.contains('ANODE'))) {
             return _bad('Cell must have an assigned cathode and anode to generate its barcode');
           }
-          target['barcode_value'] ??= 'CELL-${id.toString().padLeft(5, '0')}';
+          target['barcode_value'] = _code(id);
         default: // PUT rename
           final name = (body['name'] as String).trim().toUpperCase();
           if (!RegExp(r'^[A-Z][1-9][0-9]*$').hasMatch(name)) {

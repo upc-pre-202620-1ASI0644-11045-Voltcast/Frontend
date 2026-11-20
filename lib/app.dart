@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'app_router.dart';
 import 'core/network/api_client.dart';
+import 'core/push/device_registry.dart';
 import 'core/storage/token_storage.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/data/auth_repository.dart';
@@ -10,6 +11,7 @@ import 'features/auth/presentation/auth_controller.dart';
 import 'features/cells/data/inventory_repository.dart';
 import 'features/datasets/data/datasets_repository.dart';
 import 'features/forecasting/data/forecasting_repository.dart';
+import 'features/integrations/data/drive_repository.dart';
 import 'features/users/data/users_repository.dart';
 
 class VoltCastApp extends StatefulWidget {
@@ -26,6 +28,7 @@ class _VoltCastAppState extends State<VoltCastApp> {
   late final InventoryRepository _inventory;
   late final DatasetsRepository _datasets;
   late final ForecastingRepository _forecasting;
+  late final DriveRepository _drive;
   late final AuthController _auth;
   late final _router = buildRouter(_auth);
 
@@ -39,7 +42,8 @@ class _VoltCastAppState extends State<VoltCastApp> {
     _inventory = InventoryRepository(_api);
     _datasets = DatasetsRepository(_api);
     _forecasting = ForecastingRepository(_api);
-    _auth = AuthController(_repository);
+    _drive = DriveRepository(_api);
+    _auth = AuthController(_repository, devices: DeviceRegistry(_api));
     _api.onSessionExpired = _auth.handleSessionExpired;
     _auth.restoreSession();
   }
@@ -61,6 +65,7 @@ class _VoltCastAppState extends State<VoltCastApp> {
         Provider<InventoryRepository>.value(value: _inventory),
         Provider<DatasetsRepository>.value(value: _datasets),
         Provider<ForecastingRepository>.value(value: _forecasting),
+        Provider<DriveRepository>.value(value: _drive),
         ChangeNotifierProvider<AuthController>.value(value: _auth),
       ],
       child: MaterialApp.router(

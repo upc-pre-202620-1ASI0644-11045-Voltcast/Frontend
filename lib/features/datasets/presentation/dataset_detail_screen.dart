@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
-import '../../../core/dialogs.dart';
 import '../../../core/format.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/network/backend_messages.dart';
@@ -12,13 +11,11 @@ import '../../../core/widgets/app_header.dart';
 import '../../../core/widgets/auth_visuals.dart';
 import '../../../core/widgets/load_error.dart';
 import '../../../core/widgets/page_header.dart';
-import '../../forecasting/data/forecasting_repository.dart';
 import '../data/dataset.dart';
 import 'datasets_controller.dart';
 import 'datasets_screen.dart';
 
-/// One file: its processing state and, once ready, what it contains and the
-/// button to train the model with it.
+/// One file: its processing state and, once ready, what it contains.
 class DatasetDetailScreen extends StatefulWidget {
   const DatasetDetailScreen({super.key, required this.id});
 
@@ -29,7 +26,6 @@ class DatasetDetailScreen extends StatefulWidget {
 }
 
 class _DatasetDetailScreenState extends State<DatasetDetailScreen> {
-  bool _starting = false;
   bool _confirming = false;
 
   @override
@@ -38,21 +34,6 @@ class _DatasetDetailScreenState extends State<DatasetDetailScreen> {
     // The list has no summary; the detail does.
     final datasets = context.read<DatasetsController>();
     Future.microtask(() => datasets.refresh(widget.id));
-  }
-
-  Future<void> _train() async {
-    final repository = context.read<ForecastingRepository>();
-    setState(() => _starting = true);
-    try {
-      // A 400 (one already running, file not ready) is explained in a SnackBar.
-      await runAction(
-        context,
-        () => repository.startTraining(widget.id),
-        'Entrenamiento iniciado.',
-      );
-    } finally {
-      if (mounted) setState(() => _starting = false);
-    }
   }
 
   Future<void> _confirm() async {
@@ -105,25 +86,7 @@ class _DatasetDetailScreenState extends State<DatasetDetailScreen> {
 
   List<Widget> _content(Dataset d) {
     return [
-      Row(
-        children: [
-          const ExcelIcon(size: 56),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                datasetPill(d.status),
-                const SizedBox(height: 6),
-                Text(
-                  'Subido el ${formatDateTime(d.createdAt)}',
-                  style: const TextStyle(fontSize: 13, color: AppColors.muted),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+      _Hero(dataset: d),
       const SizedBox(height: 16),
       switch (d.status) {
         DatasetStatus.raw || DatasetStatus.cleaning => AppCard(
@@ -166,126 +129,301 @@ class _DatasetDetailScreenState extends State<DatasetDetailScreen> {
           onCancel: () =>
               context.canPop() ? context.pop() : context.go('/datasets'),
         ),
-        DatasetStatus.ready => _Summary(
-          dataset: d,
-          starting: _starting,
-          onTrain: _train,
-        ),
+        DatasetStatus.ready => _Summary(dataset: d),
       },
     ];
   }
 }
 
-class _Summary extends StatelessWidget {
-  const _Summary({
-    required this.dataset,
-    required this.starting,
-    required this.onTrain,
-  });
+/// Status, upload date and, once ready, what the file contains.
+class _Hero extends StatelessWidget {
+  const _Hero({required this.dataset});
 
   final Dataset dataset;
-  final bool starting;
-  final VoidCallback onTrain;
 
   @override
   Widget build(BuildContext context) {
-    final s = dataset.summary;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (s == null)
-          const Padding(
-            padding: EdgeInsets.all(24),
-            child: Center(child: CircularProgressIndicator()),
-          )
-        else
-          AppCard(
-            child: Column(
-              children: [
-                _Row(
-                  'Secciones',
-                  s.sections.entries
-                      .map((e) => '${e.key} · ${e.value}')
-                      .join(' / '),
+    final d = dataset;
+    final s = d.status == DatasetStatus.ready ? d.summary : null;
+    final pill = datasetPill(d.status);
+    return AppCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const ExcelIcon(size: 56),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    pill,
+                    const SizedBox(height: 6),
+                    Text(
+                      'Subido el ${formatDateTime(d.createdAt)}',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppColors.muted,
+                      ),
+                    ),
+                  ],
                 ),
-                _Row('Celdas', '${s.cellCount}'),
-                if (s.dateFrom != null && s.dateTo != null)
-                  _Row(
-                    'Periodo',
-                    '${formatShortDate(s.dateFrom!)} – ${formatShortDate(s.dateTo!)}',
+              ),
+            ],
+          ),
+          if (s != null) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 14),
+              child: Divider(height: 1, color: Color(0xFFF0F1F4)),
+            ),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _Field(
+                    'Secciones',
+                    s.sections.entries
+                        .map((e) => '${e.key} · ${e.value}')
+                        .join(' / '),
                   ),
-                _Row('Días', '${s.days}'),
-                _Row('Celdas nuevas', '${s.newCells}', last: true),
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: _Field('Celdas', '${s.cellCount}')),
               ],
             ),
-          ),
-        if (s != null && s.hasCleaning) ...[
-          const SizedBox(height: 16),
-          _CleaningSummary(summary: s, merged: dataset.baseDatasetId != null),
+            if (s.dateFrom != null && s.dateTo != null) ...[
+              const SizedBox(height: 12),
+              _Field(
+                'Periodo',
+                // Non-breaking spaces: a long range wraps only after the dash.
+                '${formatShortDate(s.dateFrom!)} – ${formatShortDate(s.dateTo!)}'
+                    .replaceAll(' ', ' ')
+                    .replaceAll(' – ', ' – '),
+              ),
+            ],
+          ],
         ],
-        const SizedBox(height: 16),
-        const Text(
-          'El entrenamiento arranca solo cuando el archivo queda listo. '
-          'Usa el botón solo si necesitas reintentarlo.',
-          style: TextStyle(fontSize: 13, height: 1.4, color: AppColors.muted),
+      ),
+    );
+  }
+}
+
+class _Field extends StatelessWidget {
+  const _Field(this.label, this.value);
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12, color: AppColors.muted),
         ),
-        const SizedBox(height: 12),
-        SecondaryButton(
-          label: starting ? 'Iniciando…' : 'Reintentar entrenamiento',
-          onPressed: starting ? null : onTrain,
+        const SizedBox(height: 2),
+        Text(
+          value,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w800,
+            color: AppColors.ink,
+          ),
         ),
       ],
     );
   }
 }
 
-/// What the cleaning did with the records of the uploaded file. Zeros are shown
-/// on purpose: they confirm the cleaning ran.
-class _CleaningSummary extends StatelessWidget {
-  const _CleaningSummary({required this.summary, required this.merged});
+/// What the cleaning did with the records of the uploaded file, as a timeline.
+/// Zeros are shown on purpose: they confirm the cleaning ran.
+class _Summary extends StatelessWidget {
+  const _Summary({required this.dataset});
 
-  final DatasetSummary summary;
-
-  /// The file complements another: the counts are only of the uploaded one.
-  final bool merged;
+  final Dataset dataset;
 
   @override
   Widget build(BuildContext context) {
-    final s = summary;
-    final rows = <(String, int?)>[
-      ('Registros leídos', s.rowsRead),
-      ('Registros ordenados', s.rowsSorted),
-      ('Duplicados eliminados', s.duplicatesRemoved),
-      ('Datos descartados (filas sin fecha)', s.discardedRows),
-      ('Columnas descartadas', s.discardedColumns),
-    ].where((r) => r.$2 != null).toList();
+    final s = dataset.summary;
+    if (s == null) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (!s.hasCleaning) return const SizedBox.shrink();
+    final rows = [
+      (Icons.checklist_rtl, 'Registros leídos', s.rowsRead),
+      (Icons.swap_vert, 'Registros ordenados', s.rowsSorted),
+      (Icons.filter_none, 'Duplicados eliminados', s.duplicatesRemoved),
+      (Icons.delete_outline, 'Descartados (sin fecha)', s.discardedRows),
+    ].where((r) => r.$3 != null).toList();
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Resumen de limpieza',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w800,
-              color: AppColors.ink,
-            ),
+          const Row(
+            children: [
+              Icon(
+                Icons.auto_awesome_outlined,
+                size: 20,
+                color: AppColors.blue,
+              ),
+              SizedBox(width: 8),
+              Text(
+                'Resumen de limpieza',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.ink,
+                ),
+              ),
+            ],
           ),
-          if (merged)
+          if (dataset.baseDatasetId != null)
             const Padding(
-              padding: EdgeInsets.only(top: 4),
-              child: Text(
-                'Los conteos son solo del archivo que subiste, no del conjunto unido.',
-                style: TextStyle(fontSize: 13, height: 1.4, color: AppColors.muted),
+              padding: EdgeInsets.only(top: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: EdgeInsets.only(top: 1),
+                    child: Icon(
+                      Icons.info_outline,
+                      size: 15,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                  SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Los conteos son solo del archivo subido',
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.4,
+                        color: AppColors.muted,
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           for (var i = 0; i < rows.length; i++)
-            _Row(rows[i].$1, '${rows[i].$2}', last: i == rows.length - 1),
+            _Step(
+              icon: rows[i].$1,
+              label: rows[i].$2,
+              value: rows[i].$3!,
+              first: i == 0,
+              last: i == rows.length - 1,
+            ),
         ],
       ),
     );
   }
+}
+
+/// One timeline row: a dot (blue when the step touched records) joined to its
+/// neighbours by a dashed line.
+class _Step extends StatelessWidget {
+  const _Step({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.first,
+    required this.last,
+  });
+
+  final IconData icon;
+  final String label;
+  final int value;
+  final bool first;
+  final bool last;
+
+  @override
+  Widget build(BuildContext context) {
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 14,
+            child: Column(
+              children: [
+                Expanded(child: first ? const SizedBox() : const _Dashes()),
+                Container(
+                  width: 14,
+                  height: 14,
+                  decoration: BoxDecoration(
+                    color: value > 0 ? AppColors.blue : AppColors.border,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+                Expanded(child: last ? const SizedBox() : const _Dashes()),
+              ],
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              child: Row(
+                children: [
+                  Icon(icon, size: 18, color: AppColors.muted),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      label,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: AppColors.ink,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    '$value',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: AppColors.ink,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _Dashes extends StatelessWidget {
+  const _Dashes();
+
+  @override
+  Widget build(BuildContext context) =>
+      CustomPaint(painter: _DashesPainter(), size: Size.infinite);
+}
+
+class _DashesPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = AppColors.border
+      ..strokeWidth = 1.5;
+    final x = size.width / 2;
+    for (var y = 2.0; y + 3 <= size.height - 2; y += 6) {
+      canvas.drawLine(Offset(x, y), Offset(x, y + 3), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DashesPainter oldDelegate) => false;
 }
 
 /// "El archivo cubre del … al … y complementa uno del … al …" with Continuar / Cancelar.
@@ -354,49 +492,6 @@ class _MergeConfirmation extends StatelessWidget {
           onPressed: confirming ? null : onCancel,
         ),
       ],
-    );
-  }
-}
-
-class _Row extends StatelessWidget {
-  const _Row(this.label, this.value, {this.last = false});
-
-  final String label;
-  final String value;
-  final bool last;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      decoration: BoxDecoration(
-        border: last
-            ? null
-            : const Border(bottom: BorderSide(color: Color(0xFFF0F1F4))),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: const TextStyle(fontSize: 14, color: AppColors.muted),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Flexible(
-            child: Text(
-              value,
-              textAlign: TextAlign.end,
-              style: const TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w700,
-                color: AppColors.ink,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

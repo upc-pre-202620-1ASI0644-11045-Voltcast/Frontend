@@ -186,7 +186,8 @@ class AccountCard extends StatelessWidget {
   }
 }
 
-/// Row in "SOLICITUDES PENDIENTES" with Aprobar / Rechazar.
+/// Row in "SOLICITUDES PENDIENTES" with Aprobar / Rechazar. With a decision
+/// waiting to be sent, it shows that decision and a way to take it back instead.
 class PendingRequestCard extends StatelessWidget {
   const PendingRequestCard({
     super.key,
@@ -194,12 +195,20 @@ class PendingRequestCard extends StatelessWidget {
     required this.busy,
     required this.onApprove,
     required this.onReject,
+    this.queuedApproval,
+    this.onUndo,
   });
 
   final AuthUser user;
   final bool busy;
   final VoidCallback onApprove;
   final VoidCallback onReject;
+
+  /// True: approval waiting to be sent. False: rejection. Null: nothing queued.
+  final bool? queuedApproval;
+
+  /// Takes the queued decision back; null while it is being sent.
+  final VoidCallback? onUndo;
 
   @override
   Widget build(BuildContext context) {
@@ -269,6 +278,30 @@ class PendingRequestCard extends StatelessWidget {
               ),
             ],
           );
+
+          final queued = queuedApproval;
+          if (queued != null) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                info,
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Flexible(
+                      child: _Chip(
+                        queued ? 'Aprobación por sincronizar' : 'Rechazo por sincronizar',
+                        background: const Color(0xFFFEF6E0),
+                        color: const Color(0xFF92400E),
+                      ),
+                    ),
+                    const Spacer(),
+                    TextButton(onPressed: onUndo, child: const Text('Deshacer')),
+                  ],
+                ),
+              ],
+            );
+          }
 
           if (constraints.maxWidth >= 430) {
             return Row(

@@ -107,6 +107,8 @@ class _AppTextFieldState extends State<AppTextField> {
             errorBorder: _border(AppColors.error),
             focusedErrorBorder: _border(AppColors.error, 1.5),
             errorStyle: const TextStyle(fontSize: 13, color: AppColors.error),
+            // Long rules (the password policy) wrap instead of ending in "…".
+            errorMaxLines: 3,
             suffixIcon: widget.obscure
                 ? IconButton(
                     tooltip: _hidden ? 'Mostrar contraseña' : 'Ocultar contraseña',

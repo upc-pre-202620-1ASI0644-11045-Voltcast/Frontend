@@ -19,22 +19,19 @@ class DatasetsRepository {
     await _api.get('/datasets/$id', auth: true) as Map<String, dynamic>,
   );
 
-  /// 201 with the dataset in `raw` (or `awaiting_confirmation` when it complements
-  /// [baseDatasetId]); 400 for an unsupported, empty or oversized file, or while a
-  /// training is running.
-  Future<Dataset> upload(
-    String filename,
-    List<int> bytes, {
-    int? baseDatasetId,
-  }) async => Dataset.fromJson(
-    await _api.upload(
-      '/datasets',
-      field: 'file',
-      filename: filename,
-      bytes: bytes,
-      fields: {if (baseDatasetId != null) 'base_dataset_id': '$baseDatasetId'},
-    ) as Map<String, dynamic>,
-  );
+  /// 201 with the dataset in `raw` (or `awaiting_confirmation` when the server
+  /// detects it complements an earlier one); 400 for an unsupported, empty or
+  /// oversized file, or while a training is running.
+  Future<Dataset> upload(String filename, List<int> bytes) async =>
+      Dataset.fromJson(
+        await _api.upload(
+              '/datasets',
+              field: 'file',
+              filename: filename,
+              bytes: bytes,
+            )
+            as Map<String, dynamic>,
+      );
 
   /// Accepts the merge shown for a dataset (202); it goes back to `raw`.
   Future<Dataset> confirm(int id) async => Dataset.fromJson(

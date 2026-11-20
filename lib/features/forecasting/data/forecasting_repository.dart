@@ -91,10 +91,6 @@ class ForecastingRepository {
     return series;
   }
 
-  /// 202; 400 when one is already running or the dataset is not ready.
-  Future<void> startTraining(int datasetId) =>
-      _api.post('/trainings', body: {'dataset_id': datasetId}, auth: true);
-
   // ── Voltage limits ───────────────────────────────────────────────────────
 
   Future<List<AlertRule>> alertRules() async {

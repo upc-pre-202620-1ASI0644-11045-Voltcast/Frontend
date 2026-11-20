@@ -72,6 +72,34 @@ void main() {
     );
   });
 
+  test('an HTML 403/502 from a proxy in front of a stopped backend is "no connection"', () async {
+    for (final status in [403, 502]) {
+      final api = ApiClient(
+        tokenStorage: MemoryTokens(),
+        httpClient: MockClient((_) async => http.Response('<html>blocked</html>', status)),
+      );
+      await expectLater(
+        api.get('/auth/me'),
+        throwsA(
+          isA<ApiException>()
+              .having((e) => e.isOffline, 'offline', isTrue)
+              .having((e) => e.message, 'message', contains('No se pudo conectar')),
+        ),
+      );
+    }
+  });
+
+  test('a JSON 403 from the API still says no permissions', () async {
+    final api = ApiClient(
+      tokenStorage: MemoryTokens(),
+      httpClient: MockClient((_) async => _json(403, {'detail': 'Forbidden'})),
+    );
+    await expectLater(
+      api.get('/users'),
+      throwsA(isA<ApiException>().having((e) => e.message, 'message', contains('permisos'))),
+    );
+  });
+
   test('a 401 on an authenticated call refreshes the token and retries once', () async {
     final tokens = MemoryTokens(access: 'old', refresh: 'refresh-1');
     final seenAuth = <String?>[];
@@ -155,6 +183,13 @@ void main() {
           contains('2 minutos'));
       expect(translateBackendMessage('Too many requests. Try again in 20 seconds.'),
           contains('20 segundos'));
+    });
+
+    test('a 422 about the serial length is explained in Spanish', () {
+      expect(
+        translateBackendMessage('String should have at most 10 characters'),
+        'El código serial admite máximo 10 caracteres.',
+      );
     });
 
     test('unknown messages pass through', () {
