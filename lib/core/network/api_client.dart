@@ -125,11 +125,12 @@ class ApiClient {
         'El servidor no respondió. Revisa tu conexión e inténtalo de nuevo.',
       );
     } on http.ClientException {
-      throw const ApiException(
-        'No se pudo conectar con el servidor. Verifica que esté en ejecución.',
-      );
+      throw const ApiException(_unreachable);
     }
   }
+
+  static const _unreachable =
+      'No se pudo conectar con el servidor. Verifica que esté en ejecución.';
 
   /// Exchanges the refresh token for a new access token. Returns false (and
   /// signals session expiry) when the backend rejects it.
@@ -164,6 +165,12 @@ class ApiClient {
     final json = text.isEmpty ? null : _tryDecode(text);
 
     if (response.statusCode >= 200 && response.statusCode < 300) return json;
+
+    // A proxy or tunnel in front of a stopped backend answers 403/502/503/504
+    // with an HTML page, while the API itself always answers JSON.
+    if (json is! Map && const {403, 502, 503, 504}.contains(response.statusCode)) {
+      throw const ApiException(_unreachable);
+    }
 
     throw ApiException(
       _messageFrom(json, response.statusCode),
