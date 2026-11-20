@@ -146,8 +146,8 @@ void main() {
       expect(store.reviews, isEmpty);
       expect(c.pending, isEmpty);
       expect(c.accounts.map((u) => u.id), contains(4));
-      expect(c.syncNotice, contains('2 decisiones'));
-      expect(c.syncNotice, contains('correo'));
+      expect(c.syncNotice, contains('2 peticiones'));
+      expect(c.syncNotice, contains('serán notificados'));
       expect(c.syncNoticeIsProblem, isFalse);
     });
 
@@ -211,7 +211,7 @@ void main() {
       expect(store.reviews, isEmpty);
       expect(backend.reviews.where((r) => r.url.path.contains('/4/')), hasLength(1));
       expect(backend.reviews.where((r) => r.url.path.contains('/5/')), hasLength(1));
-      expect(c.syncNotice, contains('2 decisiones'));
+      expect(c.syncNotice, contains('2 peticiones'));
     });
   });
 
@@ -265,7 +265,7 @@ void main() {
 
       expect(backend.reviews, hasLength(1));
       expect(c.queuedCount, 0);
-      expect(c.syncNotice, contains('1 decisión'));
+      expect(c.syncNotice, contains('1 petición'));
       expect(c.syncNoticeIsProblem, isFalse);
     });
 
@@ -412,7 +412,7 @@ void main() {
 
       expect(_status(backend, 5), 'active');
       expect(c.queuedCount, 0);
-      expect(c.syncNotice, contains('1 decisión'));
+      expect(c.syncNotice, contains('1 petición'));
       expect(c.syncNotice, contains('Mariana Torres'));
     });
 
@@ -602,11 +602,11 @@ void main() {
       expect(find.text('Aprobación por sincronizar'), findsNothing);
       expect(find.text('1 pendiente'), findsOneWidget);
       expect(find.text('4 usuarios'), findsOneWidget);
-      expect(find.textContaining('notificará por correo'), findsOneWidget);
+      expect(find.textContaining('será notificado'), findsOneWidget);
 
       await tester.tap(find.byTooltip('Cerrar'));
       await tester.pumpAndSettle();
-      expect(find.textContaining('notificará por correo'), findsNothing);
+      expect(find.textContaining('será notificado'), findsNothing);
     });
 
     testWidgets('undoing brings the buttons back', (tester) async {

@@ -455,7 +455,7 @@ void main() {
       expect(backend.component(1)['cell_id'], 2);
       expect(backend.component(3)['cell_id'], 1);
       expect(backend.swapRequests, 1);
-      expect(c.syncNotice, 'Se sincronizaron 1 intercambio con el servidor.');
+      expect(c.syncNotice, 'Se sincronizó 1 intercambio con el servidor.');
       expect(await store.read(), isEmpty);
       expect(c.cathodeOf(c.cellById(1)!)?.serialCode, 'CAT-014'); // not reverted by the refresh
     });

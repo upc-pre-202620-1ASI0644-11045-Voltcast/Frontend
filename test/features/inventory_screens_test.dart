@@ -1004,7 +1004,7 @@ void main() {
         expect(h.backend.component(3)['cell_id'], 1);
         expect(find.textContaining('pendiente de sincronizar'), findsNothing);
         expect(
-          find.text('Se sincronizaron 1 intercambio con el servidor.'),
+          find.text('Se sincronizó 1 intercambio con el servidor.'),
           findsOneWidget,
         );
 
@@ -1012,7 +1012,7 @@ void main() {
           find.byTooltip('Cerrar'),
         ); // the notice can be dismissed
         await tester.pumpAndSettle();
-        expect(find.textContaining('Se sincronizaron'), findsNothing);
+        expect(find.textContaining('Se sincroniz'), findsNothing);
       },
     );
   });

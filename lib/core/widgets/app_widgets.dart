@@ -397,7 +397,9 @@ class NoticeBanner extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
       color: background,
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        // Centred when there is no action button, so the close "X" (a taller tap target
+        // than one line of text) lines up with a single-line message.
+        crossAxisAlignment: actionLabel == null ? CrossAxisAlignment.center : CrossAxisAlignment.start,
         children: [
           Icon(icon, size: 20, color: foreground),
           const SizedBox(width: 12),
