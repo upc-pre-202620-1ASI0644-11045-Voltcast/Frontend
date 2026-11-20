@@ -53,5 +53,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp build/app/outputs/flutter-apk/app-release.apk voltcast-$VERSION.apk
+          # Notas autogeneradas sin el " by @usuario" de cada línea ni la sección "New Contributors".
+          notes=$(gh api "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
+            -f tag_name="v$VERSION" -f target_commitish="$GITHUB_SHA" --jq .body \
+            | sed -E -e 's/ by @[^ ]+//' -e '/^## New Contributors/,/^$/d')
           gh release create "v$VERSION" "voltcast-$VERSION.apk" \
-            --target "$GITHUB_SHA" --title "v$VERSION" --generate-notes
+            --target "$GITHUB_SHA" --title "v$VERSION" --notes "$notes"
