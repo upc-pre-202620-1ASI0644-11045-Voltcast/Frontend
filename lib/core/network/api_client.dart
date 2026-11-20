@@ -130,7 +130,7 @@ class ApiClient {
   }
 
   static const _unreachable =
-      'No se pudo conectar con el servidor. Verifica que esté en ejecución.';
+      'No se pudo conectar con el servidor. Verifica que esté disponible.';
 
   /// Exchanges the refresh token for a new access token. Returns false (and
   /// signals session expiry) when the backend rejects it.
