@@ -26,9 +26,20 @@ class PushService {
   static final _local = FlutterLocalNotificationsPlugin();
 
   static Future<void> init() async {
-    // shortcut: Android only (google-services.json); run `flutterfire configure` to add iOS/web.
+    // shortcut: Android (google-services.json) and iOS (GoogleService-Info.plist) read their
+    // config from the native file; run `flutterfire configure` to add web.
     await Firebase.initializeApp();
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      // iOS hides foreground pushes by default; let the system banner show them,
+      // so no local notification is needed there.
+      await FirebaseMessaging.instance.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      return;
+    }
     if (defaultTargetPlatform != TargetPlatform.android) return;
     await _local.initialize(
       settings: const InitializationSettings(
