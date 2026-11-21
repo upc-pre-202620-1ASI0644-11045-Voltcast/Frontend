@@ -1,0 +1,132 @@
+name: Distribute iOS (Firebase App Distribution)
+
+# Manual por ahora: hace falta la membresía de Apple activa y los secrets cargados.
+on:
+  workflow_dispatch:
+    inputs:
+      groups:
+        description: Grupos de testers de Firebase App Distribution (separados por coma)
+        required: true
+        default: ios-testers
+      release_notes:
+        description: Notas de la versión (opcional)
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  distribute:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    env:
+      # Secrets requeridos (ver docs al final del archivo):
+      GOOGLE_SERVICE_INFO_PLIST: ${{ secrets.GOOGLE_SERVICE_INFO_PLIST }}
+      ASC_KEY_P8_BASE64: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
+      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+      FIREBASE_IOS_APP_ID: ${{ secrets.FIREBASE_IOS_APP_ID }}
+      API_BASE_URL: ${{ secrets.API_BASE_URL }}
+      # Entradas del workflow, por env para no interpolarlas dentro del script.
+      INPUT_GROUPS: ${{ inputs.groups }}
+      INPUT_NOTES: ${{ inputs.release_notes }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.8 # la misma que en release.yml (Android)
+          channel: stable
+          cache: true
+
+      # Archivos que no están en el repo (ver .gitignore).
+      - name: Restore secrets to disk
+        run: |
+          umask 077
+          echo "$GOOGLE_SERVICE_INFO_PLIST" | base64 -d > ios/Runner/GoogleService-Info.plist
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$ASC_KEY_P8_BASE64" | base64 -d > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$RUNNER_TEMP/firebase-sa.json"
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$RUNNER_TEMP/firebase-sa.json" >> "$GITHUB_ENV"
+
+      # Misma regla que Android: MAJOR.MINOR de pubspec.yaml; patch y build number del run_number.
+      - name: Compute version
+        run: |
+          base=$(sed -nE 's/^version: ([0-9]+\.[0-9]+).*/\1/p' pubspec.yaml)
+          echo "VERSION=$base.${{ github.run_number }}" >> "$GITHUB_ENV"
+          echo "BUILD_NUMBER=$(( ${{ github.run_number }} + 100 ))" >> "$GITHUB_ENV"
+
+      - run: flutter pub get
+
+      # Prepara Generated.xcconfig, pods y versión; la firma la hace xcodebuild más abajo.
+      - name: Flutter build (sin firmar)
+        run: >
+          flutter build ios --release --no-codesign
+          --build-name=$VERSION
+          --build-number=$BUILD_NUMBER
+          --dart-define=API_BASE_URL=$API_BASE_URL
+
+      # Firma automática con la clave de App Store Connect: crea el certificado y el perfil
+      # Ad Hoc (con los UDIDs registrados en el portal) sin sesión de Apple ID.
+      - name: Archive
+        run: |
+          xcodebuild archive \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            CODE_SIGN_STYLE=Automatic
+
+      - name: Export IPA (ad-hoc)
+        run: |
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>ad-hoc</string>
+            <key>teamID</key><string>$APPLE_TEAM_ID</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>stripSwiftSymbols</key><true/>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Runner.xcarchive" \
+            -exportPath "$RUNNER_TEMP/ipa" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          ls "$RUNNER_TEMP/ipa"
+
+      - name: Upload to Firebase App Distribution
+        run: |
+          npm install -g firebase-tools
+          ipa=$(ls "$RUNNER_TEMP"/ipa/*.ipa | head -n 1)
+          firebase appdistribution:distribute "$ipa" \
+            --app "$FIREBASE_IOS_APP_ID" \
+            --groups "$INPUT_GROUPS" \
+            --release-notes "${INPUT_NOTES:-Build $VERSION ($BUILD_NUMBER)}"
+
+# Secrets del repositorio (Settings > Secrets and variables > Actions):
+#   GOOGLE_SERVICE_INFO_PLIST           GoogleService-Info.plist en base64
+#   APP_STORE_CONNECT_KEY_P8_BASE64     archivo AuthKey_XXXX.p8 en base64
+#   APP_STORE_CONNECT_KEY_ID            Key ID de la clave de App Store Connect
+#   APP_STORE_CONNECT_ISSUER_ID         Issuer ID (UUID, arriba en Integraciones)
+#   APPLE_TEAM_ID                       Team ID de 10 caracteres (Membership details)
+#   FIREBASE_SERVICE_ACCOUNT_JSON       JSON de una cuenta de servicio con rol
+#                                       "Firebase App Distribution Admin"
+#   FIREBASE_IOS_APP_ID                 ID de la app iOS en Firebase (1:123...:ios:abc...)
+#   API_BASE_URL                        ya existe (lo usa release.yml); debe ser HTTPS

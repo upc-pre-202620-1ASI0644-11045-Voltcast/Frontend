@@ -54,3 +54,7 @@ app.*.map.json
 
 # Firebase configuration files
 **/google-services.json
+**/GoogleService-Info.plist
+
+# Claves privadas de Apple (App Store Connect / APNs)
+*.p8
