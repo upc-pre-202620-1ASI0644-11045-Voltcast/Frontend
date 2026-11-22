@@ -1,7 +1,9 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// Must be top-level: Android runs it in a separate isolate when the app is in background.
 @pragma('vm:entry-point')
@@ -25,11 +27,21 @@ class PushService {
 
   static final _local = FlutterLocalNotificationsPlugin();
 
+  /// `data.action` the backend sends on every push that also sent an email.
+  static const openMailAction = 'open_mail';
+  static const _mail = MethodChannel('voltcast/mail');
+
   static Future<void> init() async {
     // shortcut: Android (google-services.json) and iOS (GoogleService-Info.plist) read their
     // config from the native file; run `flutterfire configure` to add web.
     await Firebase.initializeApp();
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    // Taps on pushes the system showed: app in background, closed, or (iOS) in foreground.
+    FirebaseMessaging.onMessageOpenedApp.listen((m) => handleAction(m.data['action']));
+    FirebaseMessaging.instance
+        .getInitialMessage()
+        .then((m) => handleAction(m?.data['action']))
+        .catchError((Object e) => debugPrint('Initial push failed: $e'));
     if (defaultTargetPlatform == TargetPlatform.iOS) {
       // iOS hides foreground pushes by default; let the system banner show them,
       // so no local notification is needed there.
@@ -45,7 +57,14 @@ class PushService {
       settings: const InitializationSettings(
         android: AndroidInitializationSettings('ic_stat_voltcast'),
       ),
+      // Taps on the local copies shown below while the app was open.
+      onDidReceiveNotificationResponse: (r) => handleAction(r.payload),
     );
+    // A local copy tapped after the app was closed launches it instead.
+    final launch = await _local.getNotificationAppLaunchDetails();
+    if (launch?.didNotificationLaunchApp ?? false) {
+      handleAction(launch!.notificationResponse?.payload);
+    }
     // Created at startup so it exists before the first push; background and closed pushes
     // use it too when the backend names it.
     await _local
@@ -72,9 +91,29 @@ class PushService {
                 priority: Priority.high,
               ),
             ),
+            payload: m.data['action'],
           )
           .catchError((Object e) => debugPrint('Local notification failed: $e'));
     });
+  }
+
+  /// Opens the phone's mail inbox when [action] is [openMailAction]; ignores anything else.
+  static void handleAction(String? action) {
+    if (action != openMailAction) return;
+    openMailInbox()
+        .then((ok) => ok ? null : debugPrint('No mail app to open'))
+        .catchError((Object e) => debugPrint('Open mail failed: $e'));
+  }
+
+  /// Android: the default mail app. iOS: Gmail if installed, else Apple Mail.
+  static Future<bool> openMailInbox() async {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return await _mail.invokeMethod<bool>('openInbox') ?? false;
+    }
+    for (final url in ['googlegmail://', 'message://']) {
+      if (await launchUrl(Uri.parse(url))) return true;
+    }
+    return false;
   }
 
   /// Asks for notification permission (Android 13+ / iOS) and returns the FCM
